@@ -17,7 +17,7 @@ def chat():
     
     # 调用DeepSeek API
     headers = {
-        "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
+        "Authorization": "Bearer ${DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
