@@ -1,7 +1,10 @@
 # 创建应用实例
 import sys
+from flask import Flask, request, jsonify
+import requests
+# from wxcloudrun import app
+app = Flask(__name__)
 
-from wxcloudrun import app
 
 # 启动Flask Web服务
 if __name__ == '__main__':
