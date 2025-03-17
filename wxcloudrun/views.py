@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import render_template, request, jsonify
 import requests
+import os
 from run import app
 from wxcloudrun.dao import delete_counterbyid, query_counterbyid, insert_counter, update_counterbyid
 from wxcloudrun.model import Counters
