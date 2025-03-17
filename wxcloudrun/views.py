@@ -64,3 +64,37 @@ def get_count():
     """
     counter = Counters.query.filter(Counters.id == 1).first()
     return make_succ_response(0) if counter is None else make_succ_response(counter.count)
+
+DEEPSEEK_API_KEY = os.getenv('sk-c3b547b62c224059ba0cebfafc7a4f0a')
+API_URL = "https://api.deepseek.com/chat/completions"
+
+@app.route('/api/count',methods=['POST'])
+def handle_chat():
+    try:
+        # 解析小程序请求
+        user_message = request.json.get('content')
+        if not user_message:
+            return jsonify({"error": "Empty content"}), 400
+            
+        # 调用DeepSeek API
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "messages": [{"role": "user", "content": user_message}],
+            "model": "deepseek-chat",
+            "temperature": 0.7
+        }
+        
+        response = requests.post(API_URL, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        # 提取响应内容
+        bot_response = response.json()['choices'][0]['message']['content']
+        return jsonify({"reply": bot_response})
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"API Error: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"Server Error: {str(e)}"}), 500
