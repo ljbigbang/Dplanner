@@ -1,12 +1,10 @@
-# 创建应用实例
 import sys
 from flask import Flask, request, jsonify
-import requests
-import os
-# from wxcloudrun import app
+from openai import OpenAI
+
+DEEPSEEK_API_KEY = 'sk-c3b547b62c224059ba0cebfafc7a4f0a'
+DEEPSEEK_URL = "https://api.deepseek.com"
 app = Flask(__name__)
-DEEPSEEK_API_KEY = os.getenv('sk-c3b547b62c224059ba0cebfafc7a4f0a')
-DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -16,22 +14,19 @@ def chat():
         return jsonify({"code":400, "error":"Empty message"}), 400
     
     # 调用DeepSeek API
-    headers = {
-        "Authorization": "Bearer ${DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": user_input}],
-        "temperature": 0.7
-    }
-    
     try:
-        response = requests.post(DEEPSEEK_URL, json=payload, headers=headers)
-        response.raise_for_status()
+        client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url=DEEPSEEK_URL)
+        response = client.chat.completions.create(
+            model='deepseek-chat',
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_input},
+            ],
+            stream=False
+        )
         return jsonify({
-            "code":200,
-            "reply": response.json()['choices'][0]['message']['content']
+            "code":200, 
+            "reply":response.choices[0].message.content
         })
     except Exception as e:
         return jsonify({"code":500, "error":str(e)}), 500
