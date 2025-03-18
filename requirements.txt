@@ -6,3 +6,5 @@ Jinja2==3.0.3
 MarkupSafe==2.0.1
 Werkzeug==2.0.2
 openai==1.60.1
+langchain-deepseek==0.1.1
+pymongo==4.11.1
