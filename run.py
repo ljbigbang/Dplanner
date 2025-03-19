@@ -30,7 +30,7 @@ async def handler(websocket):
     await chat(websocket)
 
 async def main():
-    port = int(os.getenv("PORT", 8765))
+    port = int(os.getenv("PORT", 80))
     async with websockets.serve(
         handler,
         host="0.0.0.0",
