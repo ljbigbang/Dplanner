@@ -46,7 +46,9 @@ async def plan(websocket):
 async def handler(websocket):
     """处理每个 WebSocket 连接"""
     message = await websocket.recv()
+    print(message)
     data = json.loads(message)
+    print(data)
     if data['action'] == 'chat':
         await chat(websocket)
     elif data['action'] == 'plan':
