@@ -45,13 +45,10 @@ async def plan(websocket):
 
 async def handler(websocket):
     """处理每个 WebSocket 连接"""
-    message = await websocket.recv()
-    await websocket.send(message)
-    data = json.loads(message)
-    print(data)
-    if data['action'] == 'chat':
+    action = await websocket.recv()
+    if action == 'chat':
         await chat(websocket)
-    elif data['action'] == 'plan':
+    elif action == 'plan':
         await plan(websocket)
     
 
