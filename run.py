@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import asyncio
 import websockets
 from openai import OpenAI
@@ -21,13 +22,36 @@ async def chat(websocket):
                 stream=False
             )
             await websocket.send(response.choices[0].message.content)
+    except websockets.exceptions.ConnectionClosed:
+        print("客户端主动断开连接")
 
+async def plan(websocket):
+    try:
+        client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url=DEEPSEEK_URL)
+        await websocket.send("这是计划模块")
+        while True:
+            user_input = await websocket.recv()
+            response = client.chat.completions.create(
+                model='deepseek-chat',
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": user_input},
+                ],
+                stream=False
+            )
+            await websocket.send(response.choices[0].message.content)      
     except websockets.exceptions.ConnectionClosed:
         print("客户端主动断开连接")
 
 async def handler(websocket):
     """处理每个 WebSocket 连接"""
-    await chat(websocket)
+    async for message in websocket:
+        data = json.loads(message)
+        if data['action'] == 'chat':
+            await chat(websocket)
+        elif data['action'] == 'plan':
+            await plan(websocket)
+    
 
 async def main():
     port = int(os.getenv("PORT", 80))
