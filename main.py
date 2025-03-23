@@ -226,6 +226,7 @@ async def chat_plan(websocket):
                         if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                             confirm_stat=True
 
+            await websocket.send(response)
             final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
             #send final schedule back to frontend
             await websocket.send(json.dumps(final_schedule))
