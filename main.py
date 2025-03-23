@@ -59,174 +59,167 @@ async def chat_plan(websocket):
     floor_messages = []
     #get user's input
     await websocket.send(pack_non_schedule("您好，我是您的私人时间规划助手Dplanner，您有什么需要安排的嘛？"))
-    user_input = await websocket.recv()
+    while(True):
+        user_input = await websocket.recv()
     
-    #router
-    router_msg=chater_prompt()
-    router_msg.append(("user",user_input))
-    response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
-    action = response.lower().split("user needs:")[1].strip()
+        #router
+        router_msg=chater_prompt()
+        router_msg.append(("user",user_input))
+        response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
+        action = response.lower().split("user needs:")[1].strip()
 
-    # 需要修改
-    #temporary add period
-    if user_input=="period":
-       action="period"
+        # 需要修改
+        #temporary add period
+        if user_input=="period":
+           action="period"
 
-    #add
-    if action=='add':
-        #call extractor
-        add_msg=add_extractor_prompt()
-        add_msg.append(("user",user_input))
-        response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
-        add_msg.append(("assistant",response))
-        if "turns: 1" in response and "Status: completed" in  response:
-            #check the conflict
-            new_data=json.loads(response.lower().split("collected events:")[1].strip())
-            feteched_data =get_add_event(new_data)
-            check_conflict = check_time_conflicts(feteched_data,new_data)
-            if len(check_conflict)>0:
-                conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
-                add_msg.append(("assistant",f'[conflict checker]: {conflict_output}'))
-                #report conflict
-                await websocket.send(pack_non_schedule(conflict_output))
-                #wait user's input
-                #use the preference to solve the conflict
-                user_input = await websocket.recv()
-                router_msg.append(("user",user_input))
-                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
-                #if cancel, end the dialogue
-                if "delete" in conflict_action:
-                    floor_messages.append(add_msg[1:])
-                    await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
-                    return "user delete the new events"
-                else:
-                    #send it to add planner
-                    addplan_msg = add_planner_prompt()
-                    addplan_msg.append(("user",user_input))
-                    confirm_stat = False # has to be confirmed by user
-                    while not confirm_stat:
-                        response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                        addplan_msg.append(("assistant",response))
-                        try:
-                            conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule(conflict_res))
-                            user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                        except:
-                            solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
-                            user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                            confirm_msg = confirm_agent_prompt()
-                            confirm_msg.append(("user",user_input))
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                                confirm_stat=True
-                            # disagree?
-            try:
-                final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
-            except:
-                final_schedule = new_data
-            #send final schedule back to frontend
-            await websocket.send(pack_schedule(json.dumps(final_schedule)))
-            write_event(final_schedule)
-            #need to delete the event in the new event listed first
-            floor_messages.append(add_msg[1:])
-            floor_messages.append(addplan_msg[1:])
-            return "new event has been added"
-        else:
-            await websocket.send(pack_non_schedule(extract_message(response.lower(),"grounded message:"))) # ask for more infor 
-            user_input = await websocket.recv()
+        #add
+        if action=='add':
+            #call extractor
+            add_msg=add_extractor_prompt()
             add_msg.append(("user",user_input))
             response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
             add_msg.append(("assistant",response))
-            # still partially completed?
-
-        if "turns:2" in response and "status:completed" in  response: #similar to round 1
-            new_data=json.loads(response.lower().split("collected events:")[1].strip())
-            feteched_data =get_add_event(new_data)
-            # planned_event =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
-            check_conflict = check_time_conflicts(feteched_data,new_data)
-            if len (check_conflict)>0:
-                conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
-                add_msg.append(("assistant",f'[conflict checker]: {conflict_output}'))
-                #report conflict
-                await websocket.send(pack_non_schedule(conflict_output))
-                #wait user's input
-                #use the preference to solve the conflict
-                user_input = await websocket.recv()
-                router_msg.append(("user",user_input))
-                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
-                #if cancel, end the dialogue
-                if "delete" in conflict_action:
-                    floor_messages.append(add_msg[1:])
-                    await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
-                    return "user delete the new events"
-                else:
-                    #send it to add planner
-                    addplan_msg = add_planner_prompt()
-                    addplan_msg.append(("user",user_input))
-                    confirm_stat = False # has to be confirmed by user
-                    while not confirm_stat:
-                        response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                        addplan_msg.append(("assistant",response))
-                        try:
-                            conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule(conflict_res))
-                            user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                        except:
-                            solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
-                            user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                            confirm_msg = confirm_agent_prompt()
-                            confirm_msg.append(("user",user_input))
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                                confirm_stat=True
-                            # disagree?
-            try:
-                final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
-            except:
-                final_schedule = new_data
-            #send final schedule back to frontend
-            await websocket.send(pack_schedule(json.dumps(final_schedule)))
-            write_event(final_schedule)
-            #need to delete the event in the new event listed first
-            floor_messages.append(add_msg[1:])
-            floor_messages.append(addplan_msg[1:])
-            return "new event has been added"
-        else: 
-            #information is not enough , call add planner
-            #planner need new data, and fetched data 
-            #new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
-            new_data = json.loads(response.lower().split("collected events:")[1].strip())
-            feteched_data = get_add_event(new_data)
-            user_input = None# now user does not have feedback yet
-            addplan_msg = add_planner_prompt()
-            conflict_res = []
-        
-            confirm_stat = False # has to be confirmed by user 
-            while not confirm_stat:
-                response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                addplan_msg.append(("assistant",response))
-                try:
-                    conflict_res= response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
-                    addplan_msg.append(("assistant",f'[conflict checker]: {conflict_res}'))
-                    await websocket.send(pack_non_schedule(conflict_res))
+            if "turns: 1" in response and "Status: completed" in  response:
+                #check the conflict
+                new_data=json.loads(response.lower().split("collected events:")[1].strip())
+                feteched_data =get_add_event(new_data)
+                check_conflict = check_time_conflicts(feteched_data,new_data)
+                if len(check_conflict)>0:
+                    conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
+                    add_msg.append(("assistant",f'[conflict checker]: {conflict_output}'))
+                    #report conflict
+                    await websocket.send(pack_non_schedule(conflict_output))
+                    #wait user's input
+                    #use the preference to solve the conflict
                     user_input = await websocket.recv()
-                    addplan_msg.append(("user",user_input))
-                    confirm_msg= confirm_agent_prompt()
-                    confirm_msg.append(("user",user_input))
-                    get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                    if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                        confirm_stat=True
-                except:    
-                    if(len(conflict_res))==0:
-                        # never have conflict
-                        solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
-                        await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                    router_msg.append(("user",user_input))
+                    conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
+                    #if cancel, end the dialogue
+                    if "delete" in conflict_action:
+                        floor_messages.append(add_msg[1:])
+                        await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
+                        continue
+                        # return "user delete the new events"
+                    else:
+                        #send it to add planner
+                        addplan_msg = add_planner_prompt()
+                        addplan_msg.append(("user",user_input))
+                        confirm_stat = False # has to be confirmed by user
+                        while not confirm_stat:
+                            response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
+                            addplan_msg.append(("assistant",response))
+                            try:
+                                conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
+                                await websocket.send(pack_non_schedule(conflict_res))
+                                user_input = await websocket.recv()
+                                addplan_msg.append(("user",user_input))
+                            except:
+                                solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
+                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                                user_input = await websocket.recv()
+                                addplan_msg.append(("user",user_input))
+                                confirm_msg = confirm_agent_prompt()
+                                confirm_msg.append(("user",user_input))
+                                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                                if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                                    confirm_stat=True
+                                # disagree?
+                try:
+                    final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+                except:
+                    final_schedule = new_data
+                #send final schedule back to frontend
+                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                write_event(final_schedule)
+                #need to delete the event in the new event listed first
+                floor_messages.append(add_msg[1:])
+                floor_messages.append(addplan_msg[1:])
+                continue
+                # return "new event has been added"
+            else:
+                await websocket.send(pack_non_schedule(extract_message(response.lower(),"grounded message:"))) # ask for more infor 
+                user_input = await websocket.recv()
+                add_msg.append(("user",user_input))
+                response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
+                add_msg.append(("assistant",response))
+                # still partially completed?
+
+            if "turns:2" in response and "status:completed" in  response: #similar to round 1
+                new_data=json.loads(response.lower().split("collected events:")[1].strip())
+                feteched_data =get_add_event(new_data)
+                # planned_event =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
+                check_conflict = check_time_conflicts(feteched_data,new_data)
+                if len (check_conflict)>0:
+                    conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
+                    add_msg.append(("assistant",f'[conflict checker]: {conflict_output}'))
+                    #report conflict
+                    await websocket.send(pack_non_schedule(conflict_output))
+                    #wait user's input
+                    #use the preference to solve the conflict
+                    user_input = await websocket.recv()
+                    router_msg.append(("user",user_input))
+                    conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
+                    #if cancel, end the dialogue
+                    if "delete" in conflict_action:
+                        floor_messages.append(add_msg[1:])
+                        await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
+                        continue
+                        # return "user delete the new events"
+                    else:
+                        #send it to add planner
+                        addplan_msg = add_planner_prompt()
+                        addplan_msg.append(("user",user_input))
+                        confirm_stat = False # has to be confirmed by user
+                        while not confirm_stat:
+                            response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
+                            addplan_msg.append(("assistant",response))
+                            try:
+                                conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
+                                await websocket.send(pack_non_schedule(conflict_res))
+                                user_input = await websocket.recv()
+                                addplan_msg.append(("user",user_input))
+                            except:
+                                solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
+                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                                user_input = await websocket.recv()
+                                addplan_msg.append(("user",user_input))
+                                confirm_msg = confirm_agent_prompt()
+                                confirm_msg.append(("user",user_input))
+                                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                                if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                                    confirm_stat=True
+                                # disagree?
+                try:
+                    final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+                except:
+                    final_schedule = new_data
+                #send final schedule back to frontend
+                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                write_event(final_schedule)
+                #need to delete the event in the new event listed first
+                floor_messages.append(add_msg[1:])
+                floor_messages.append(addplan_msg[1:])
+                continue
+                # return "new event has been added"
+            else: 
+                #information is not enough , call add planner
+                #planner need new data, and fetched data 
+                #new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
+                new_data = json.loads(response.lower().split("collected events:")[1].strip())
+                feteched_data = get_add_event(new_data)
+                user_input = None# now user does not have feedback yet
+                addplan_msg = add_planner_prompt()
+                conflict_res = []
+        
+                confirm_stat = False # has to be confirmed by user 
+                while not confirm_stat:
+                    response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
+                    addplan_msg.append(("assistant",response))
+                    try:
+                        conflict_res= response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
+                        addplan_msg.append(("assistant",f'[conflict checker]: {conflict_res}'))
+                        await websocket.send(pack_non_schedule(conflict_res))
                         user_input = await websocket.recv()
                         addplan_msg.append(("user",user_input))
                         confirm_msg= confirm_agent_prompt()
@@ -234,34 +227,47 @@ async def chat_plan(websocket):
                         get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                         if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                             confirm_stat=True
-                    else:
-                        #conflict has been solved
-                        solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
-                        await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
-                        user_input = await websocket.recv()
-                        addplan_msg.append(("user",user_input))
-                        confirm_msg=confirm_agent_prompt()
-                        confirm_msg.append(("user",user_input))
-                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                        if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                            confirm_stat=True
+                    except:    
+                        if(len(conflict_res))==0:
+                            # never have conflict
+                            solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
+                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                            user_input = await websocket.recv()
+                            addplan_msg.append(("user",user_input))
+                            confirm_msg= confirm_agent_prompt()
+                            confirm_msg.append(("user",user_input))
+                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                                confirm_stat=True
+                        else:
+                            #conflict has been solved
+                            solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
+                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                            user_input = await websocket.recv()
+                            addplan_msg.append(("user",user_input))
+                            confirm_msg=confirm_agent_prompt()
+                            confirm_msg.append(("user",user_input))
+                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                                confirm_stat=True
 
-            final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
-            #send final schedule back to frontend
-            await websocket.send(pack_schedule(json.dumps(final_schedule)))
-            write_event(final_schedule)
-            try:
-                cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
-                delete_event(cancel_events)
-            except ValueError:
-                pass
+                final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
+                #send final schedule back to frontend
+                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                write_event(final_schedule)
+                try:
+                    cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
+                    delete_event(cancel_events)
+                except ValueError:
+                    pass
                 
 
-    #add all messages to floor at last
-    #the first one is the system prompt, do not add to floor
-    floor_messages.append(add_msg[1:])
-    floor_messages.append(addplan_msg[1:])
-    return "new event has been added"
+        #add all messages to floor at last
+        #the first one is the system prompt, do not add to floor
+        floor_messages.append(add_msg[1:])
+        floor_messages.append(addplan_msg[1:])
+        continue
+        # return "new event has been added"
 
 
 
