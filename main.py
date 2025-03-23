@@ -22,13 +22,13 @@ DEEPSEEK_URL = "https://api.deepseek.com"
 client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url=DEEPSEEK_URL)
 
 #get the response of llm and add a name to it
-def llm_invoke(client, llm_name, prompt, user_input, agenttype):
+def llm_invoke(client, llm_name, prompt, agenttype):
+    messages = [prompt[0]]
+    for msg in prompt[1:]:
+        messages.append({"role":msg[0],"content":msg[1]})
     response = client.chat.completions.create(
         model = llm_name,
-        messages=[
-            {"role": "system", "content": prompt[0]},
-            {"role": "user", "content": user_input},
-        ],
+        messages = messages,
         stream = False
     )
     return f"[{agenttype}]: {response.choices[0].message.content}"
@@ -49,7 +49,8 @@ async def chat_plan(websocket):
     
     #router
     router_msg=chater_prompt()
-    response=llm_invoke(client, "deepseek-chat", router_msg, user_input, "chater")
+    router_msg.append(("user",user_input))
+    response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
     action = response.lower().split("user needs:")[1].strip()
 
     # 需要修改
@@ -61,8 +62,8 @@ async def chat_plan(websocket):
     if action=='add':
         #call extractor
         add_msg=add_extractor_prompt()
-        response = llm_invoke(client, "deepseek-chat", add_msg, user_input, "add_extractor")
         add_msg.append(("user",user_input))
+        response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
         add_msg.append(("assistant",response))
         if "turns: 1" in response and "Status: completed" in  response:
             #check the conflict
@@ -77,7 +78,8 @@ async def chat_plan(websocket):
                 #wait user's input
                 #use the preference to solve the conflict
                 user_input = await websocket.recv()
-                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, user_input, "chater")
+                router_msg.append(("user",user_input))
+                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
                 #if cancel, end the dialogue
                 if "delete" in conflict_action:
                     floor_messages.append(add_msg[1:])
@@ -89,7 +91,7 @@ async def chat_plan(websocket):
                     addplan_msg.append(("user",user_input))
                     confirm_stat = False # has to be confirmed by user
                     while not confirm_stat:
-                        response = llm_invoke(client, "deepseek-chat", addplan_msg, user_input, "add_planner")
+                        response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                         addplan_msg.append(("assistant",response))
                         try:
                             conflict_res = response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
@@ -102,7 +104,8 @@ async def chat_plan(websocket):
                             user_input = await websocket.recv()
                             addplan_msg.append(("user",user_input))
                             confirm_msg = confirm_agent_prompt()
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
+                            confirm_msg.append(("user",user_input))
+                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                             if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                                 confirm_stat=True
                             # disagree?
@@ -117,8 +120,8 @@ async def chat_plan(websocket):
         else:
             await websocket.send(extract_message(response.lower(),"grounded message:")) # ask for more infor 
             user_input = await websocket.recv()
-            response = llm_invoke(client, "deepseek-chat", add_msg, user_input, "add_extractor")
             add_msg.append(("user",user_input))
+            response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
             add_msg.append(("assistant",response))
             # still partially completed?
 
@@ -135,7 +138,8 @@ async def chat_plan(websocket):
                 #wait user's input
                 #use the preference to solve the conflict
                 user_input = await websocket.recv()
-                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, user_input, "chater")
+                router_msg.append(("user",user_input))
+                conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
                 #if cancel, end the dialogue
                 if "delete" in conflict_action:
                     floor_messages.append(add_msg[1:])
@@ -147,7 +151,7 @@ async def chat_plan(websocket):
                     addplan_msg.append(("user",user_input))
                     confirm_stat = False # has to be confirmed by user
                     while not confirm_stat:
-                        response = llm_invoke(client, "deepseek-chat", addplan_msg, user_input, "add_planner")
+                        response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                         addplan_msg.append(("assistant",response))
                         try:
                             conflict_res = response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
@@ -160,7 +164,8 @@ async def chat_plan(websocket):
                             user_input = await websocket.recv()
                             addplan_msg.append(("user",user_input))
                             confirm_msg = confirm_agent_prompt()
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
+                            confirm_msg.append(("user",user_input))
+                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                             if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                                 confirm_stat=True
                             # disagree?
@@ -178,13 +183,13 @@ async def chat_plan(websocket):
             #new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
             new_data = json.loads(response.lower().split("collected events:")[1].strip())
             feteched_data = get_add_event(new_data)
-            user_input = ""# now user does not have feedback yet
+            user_input = None# now user does not have feedback yet
             addplan_msg = add_planner_prompt()
             conflict_res = []
         
             confirm_stat = False # has to be confirmed by user 
             while not confirm_stat:
-                response = llm_invoke(client, "deepseek-chat", addplan_msg, user_input, "add_planner")
+                response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                 addplan_msg.append(("assistant",response))
                 try:
                     conflict_res= response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
@@ -193,7 +198,8 @@ async def chat_plan(websocket):
                     user_input = await websocket.recv()
                     addplan_msg.append(("user",user_input))
                     confirm_msg= confirm_agent_prompt()
-                    get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
+                    confirm_msg.append(("user",user_input))
+                    get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                     if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                         confirm_stat=True
                 except:    
@@ -204,7 +210,8 @@ async def chat_plan(websocket):
                         user_input = await websocket.recv()
                         addplan_msg.append(("user",user_input))
                         confirm_msg= confirm_agent_prompt()
-                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
+                        confirm_msg.append(("user",user_input))
+                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                         if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                             confirm_stat=True
                     else:
@@ -214,14 +221,14 @@ async def chat_plan(websocket):
                         user_input = await websocket.recv()
                         addplan_msg.append(("user",user_input))
                         confirm_msg=confirm_agent_prompt()
-                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
+                        confirm_msg.append(("user",user_input))
+                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                         if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                             confirm_stat=True
 
             final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
             #send final schedule back to frontend
             await websocket.send(json.dumps(final_schedule))
-            await websocket.send(response)
             write_event(final_schedule)
             try:
                 cancel_events = json.loads(response.lower().split("cancel list:")[1].split("would this")[0].strip())
@@ -365,7 +372,7 @@ async def chat_plan(websocket):
 
 
 def confirm_agent_prompt():
-    return [f"""
+    return [{"role":"system","content":f"""
 role:
 you are a sensitive agent that good at judging the user's agreement to the plan.
 
@@ -375,10 +382,10 @@ if the user disagree, return "disagree"
 if the user is using a statement, not showing any intention, return "none"
 
 this is user input:{user_input}
-"""]
+"""}]
 
 def chater_prompt():
-    return [f'''
+    return [{"role":"system","content":f'''
 
 Role: I am a scheduling assistant focused on understanding your calendar needs.
 
@@ -401,10 +408,10 @@ Response: "User needs: check"
 
 User: "Can you change the time of my dentist appointment?"
 Response: "User needs: modify"
-''']
+'''}]
 
 def add_extractor_prompt():
-    return [f"""
+    return [{"role":"system","content":f"""
 Role: I am an event information collector. I will:
 
 1. Extract event details from user message in this format:
@@ -457,10 +464,10 @@ Collected events:[{{"event_id":"123456789012345678901","start_time":"2024-02-26 
 1.At most you can response two times, first time the turns=1, second time the turns=2
 2.After first response, no matter user provide more information or not, you should not repeat ask for more information.
 
-"""]
+"""}]
 
 def add_planner_prompt():
-    return [f"""Role: I am a Schedule Planning Specialist that optimizes event scheduling.
+    return [{"role":"system","content":f"""Role: I am a Schedule Planning Specialist that optimizes event scheduling.
     I need to follow the rules and the output format strictly. 
     I need to consider user preference.
 
@@ -519,11 +526,11 @@ rules:
 4.in the Suggested Schedule, only show new add event or the existed event that is adjusted by you.
 5.if the user cancel the existed events,show the cancel events in canel list
 
-"""]
+"""}]
 
 
 def todo_planner_prompt(cur_date):
-    return [f'''
+    return [{"role":"system","content":f'''
 Role: 
 You are an AI schedule agent expert in intelligently inserting recurring events into a user's 
 calendar through holistic time optimization and human-centric reasoning.
@@ -590,7 +597,7 @@ adjusted time slot details for each recurred event : a list [date, time slot]
 current date : {cur_date}
 
 '''
-    ]
+    }]
 
 async def delete(websocket):
     # delete relevant events in database
