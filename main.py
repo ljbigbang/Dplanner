@@ -154,7 +154,7 @@ async def chat_plan(websocket):
                     addplan_msg.append(("user",user_input))
                     confirm_stat = False # has to be confirmed by user
                     while not confirm_stat:
-                        response = llm_invoke(client, "deepseek-chat", addplan_msg[0], user_input, "add_planner")
+                        response = llm_invoke(client, "deepseek-chat", addplan_msg, user_input, "add_planner")
                         addplan_msg.append(("assistant",response))
                         try:
                             conflict_res = response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
