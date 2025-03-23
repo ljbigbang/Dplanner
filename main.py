@@ -94,7 +94,7 @@ async def chat_plan(websocket):
                         response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                         addplan_msg.append(("assistant",response))
                         try:
-                            conflict_res = response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
+                            conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
                             await websocket.send(conflict_res)
                             user_input = await websocket.recv()
                             addplan_msg.append(("user",user_input))
@@ -154,7 +154,7 @@ async def chat_plan(websocket):
                         response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                         addplan_msg.append(("assistant",response))
                         try:
-                            conflict_res = response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
+                            conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
                             await websocket.send(conflict_res)
                             user_input = await websocket.recv()
                             addplan_msg.append(("user",user_input))
@@ -192,7 +192,7 @@ async def chat_plan(websocket):
                 response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                 addplan_msg.append(("assistant",response))
                 try:
-                    conflict_res= response.lower().split("conflict explanation:")[1].split("would this")[0].strip()
+                    conflict_res= response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
                     addplan_msg.append(("assistant",f'[conflict checker]: {conflict_res}'))
                     await websocket.send(conflict_res)
                     user_input = await websocket.recv()
@@ -232,7 +232,7 @@ async def chat_plan(websocket):
             await websocket.send(json.dumps(final_schedule))
             write_event(final_schedule)
             try:
-                cancel_events = json.loads(response.lower().split("cancel list:")[1].split("would this")[0].strip())
+                cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
                 delete_event(cancel_events)
             except ValueError:
                 pass
@@ -509,10 +509,10 @@ Suggested Schedule:
 Conflict explanation: (only include if conflicts exist)
 Only explain why you give the suggestion when you found conflict, and only explain about the conflict using event names or descriptions,
 do not use event id ,do not include others.
-
+----separate line----
 Cancel list: (only include if user want to cancel events)
 same format as  Suggested Schedule
-
+----separate line----
 Would this schedule work for you?
 
 Your input is listed here:
