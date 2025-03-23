@@ -26,7 +26,7 @@ def llm_invoke(client, llm_name, prompt, user_input, agenttype):
     response = client.chat.completions.create(
         model = llm_name,
         messages=[
-            {"role": "system", "content": prompt},
+            {"role": "system", "content": prompt[0]},
             {"role": "user", "content": user_input},
         ],
         stream = False
