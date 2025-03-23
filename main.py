@@ -233,8 +233,9 @@ async def chat_plan(websocket):
                             confirm_stat=True
 
             final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
-            cancel_events = json.loads(response.lower().split("cancel list:")[1].split("would this")[0].strip())
-            delete_event(cancel_events)
+            try:
+                cancel_events = json.loads(response.lower().split("cancel list:")[1].split("would this")[0].strip())
+                delete_event(cancel_events)
             #send final schedule back to frontend
             await websocket.send(final_schedule)
             write_event(final_schedule)
