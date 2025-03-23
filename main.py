@@ -106,21 +106,14 @@ async def chat_plan(websocket):
                             if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                                 confirm_stat=True
                             # disagree?
-                    final_schedule=json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
-                    #send final schedule back to frontend
-                    await websocket.send(json.dumps(final_schedule))
-                    write_event(final_schedule)
-                    #need to delete the event in the new event listed first
-                    floor_messages.append(add_msg[1:])
-                    floor_messages.append(addplan_msg[1:])
-                    return "new event has been added"
-            else:
-                #send final schedule back to frontend
-                await websocket.send(json.dumps(new_data))
-                write_event(new_data)
-                #need to delete the event in the new event listed first
-                floor_messages.append(add_msg[1:])
-                return "new event has been added"
+            final_schedule=json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+            #send final schedule back to frontend
+            await websocket.send(json.dumps(final_schedule))
+            write_event(final_schedule)
+            #need to delete the event in the new event listed first
+            floor_messages.append(add_msg[1:])
+            floor_messages.append(addplan_msg[1:])
+            return "new event has been added"
         else:
             await websocket.send(extract_message(response.lower(),"grounded message:")) # ask for more infor 
             user_input = await websocket.recv()
@@ -171,21 +164,14 @@ async def chat_plan(websocket):
                             if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                                 confirm_stat=True
                             # disagree?
-                    final_schedule=json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
-                    #send final schedule back to frontend
-                    await websocket.send(json.dumps(final_schedule))
-                    write_event(final_schedule)
-                    #need to delete the event in the new event listed first
-                    floor_messages.append(add_msg[1:])
-                    floor_messages.append(addplan_msg[1:])
-                    return "new event has been added"
-            else:
-                #send final schedule back to frontend
-                await websocket.send(json.dumps(new_data))
-                write_event(new_data)
-                #need to delete the event in the new event listed first
-                floor_messages.append(add_msg[1:])
-                return "new event has been added"
+            final_schedule=json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+            #send final schedule back to frontend
+            await websocket.send(json.dumps(final_schedule))
+            write_event(final_schedule)
+            #need to delete the event in the new event listed first
+            floor_messages.append(add_msg[1:])
+            floor_messages.append(addplan_msg[1:])
+            return "new event has been added"
         else: 
             #information is not enough , call add planner
             #planner need new data, and fetched data 
@@ -235,6 +221,7 @@ async def chat_plan(websocket):
             final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
             #send final schedule back to frontend
             await websocket.send(json.dumps(final_schedule))
+            await websocket.send(response)
             write_event(final_schedule)
             try:
                 cancel_events = json.loads(response.lower().split("cancel list:")[1].split("would this")[0].strip())
