@@ -192,7 +192,7 @@ async def chat_plan(websocket):
             #new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
             new_data = json.loads(response.lower().split("collected events:")[1].strip())
             feteched_data = get_add_event(new_data)
-            user_input = None# now user does not have feedback yet
+            user_input = ""# now user does not have feedback yet
             addplan_msg = add_planner_prompt()
             conflict_res = []
         
