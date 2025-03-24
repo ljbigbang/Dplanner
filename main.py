@@ -82,7 +82,7 @@ async def chat_plan(websocket):
             # 测试
             await websocket.send(pack_non_schedule(response))
             add_msg.append(("assistant",response))
-            if "turns:1" in response and "Status: completed" in  response:
+            if "turns:1" in response and "Status:completed" in response:
                 #check the conflict
                 new_data=json.loads(response.lower().split("collected events:")[1].strip())
                 feteched_data =get_add_event(new_data)
