@@ -271,69 +271,69 @@ async def chat_plan(websocket):
 
 
     
-    # period
-    if action=='period':
-    #front end should return a dict{new:,delete:}    
-        
-        new_todo=get_new_todo([user_input])
-        # get existed event of recent month
-        cur_date= time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
-        feteched_data =get_recent_events(time,30)
-        global return_feedback
-        return_feedback=None # intitial has no feedback
-        for item in new_todo:
-            format_input=f'''
-            "existed":{feteched_data},
-            "user demand":{item['content']}
-            '''
-            todo_planner=todo_planner_prompt(cur_date)
-            todo_planner.append(('user',format_input))
-            confirm_stat=False
-            while not confirm_stat:
-                response = llm_invoke(client, "deepseek-reasoner", todo_planner, "todo_planner")
-                todo_planner.append(("assistant",response))
-                plan_details=response.lower().split("current date:")[0]+"do you agree with this plan?"
-                await websocket.send(pack_non_schedule(plan_details))
-                user_input = await websocket.recv()
-                todo_planner.append(("user",user_input))
-                confirm_msg=confirm_agent_prompt()
-                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                    confirm_stat=True
-
-            attribute=response.lower().split("event attribute:")[1].split("start date:")[0].strip()
-            time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
-            event_list=get_extend(attribute,time_slot)
-            #write to event list
-            await websocket.send(pack_non_schedule(json.dumps(event_list)))
-            await websocket.send(pack_schedule(json.dumps(event_list),'period'))
-            #write_event(event_list)
-            #update the review time of todo
-            item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
-            last_event_time = datetime.strptime(event_list[-1]['end_time'], "%Y-%m-%d %H:%M")
-            item['review_time'] = last_event_time.strftime("%Y-%m-%d") # when the last planned event is complete, review 
-            item['stat']='processed'
-            #add binned eventid
-            item['binned_event']= [event['event_id'] for event in event_list]
+        # period
+        if action=='period':
+        #front end should return a dict{new:,delete:}    
             
-            
-        # if delete_todo:
-        #     for item in delete_todo:
-        #         delete_event(item['binned_event'])
-        #         item['stat']='deleted'
-        #         item['binned_event']=[]
-
-        # update todo list
-        # for item in delete_todo:
-        #         for i, stored_item in enumerate(stored_todo):
-        #             if stored_item['id'] == item['id']:
-        #                 stored_todo[i] = item
-        #                 break
-            
-        # add new todos
-        # stored_todo.extend(new_todo)
-        await websocket.send(pack_non_schedule(json.dumps(new_todo)))
-        await websocket.send(pack_schedule(json.dumps(new_todo),'period'))
+            new_todo=get_new_todo([user_input])
+            # get existed event of recent month
+            cur_date= time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
+            feteched_data =get_recent_events(time,30)
+            global return_feedback
+            return_feedback=None # intitial has no feedback
+            for item in new_todo:
+                format_input=f'''
+                "existed":{feteched_data},
+                "user demand":{item['content']}
+                '''
+                todo_planner=todo_planner_prompt(cur_date)
+                todo_planner.append(('user',format_input))
+                confirm_stat=False
+                while not confirm_stat:
+                    response = llm_invoke(client, "deepseek-reasoner", todo_planner, "todo_planner")
+                    todo_planner.append(("assistant",response))
+                    plan_details=response.lower().split("current date:")[0]+"do you agree with this plan?"
+                    await websocket.send(pack_non_schedule(plan_details))
+                    user_input = await websocket.recv()
+                    todo_planner.append(("user",user_input))
+                    confirm_msg=confirm_agent_prompt()
+                    get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                    if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                        confirm_stat=True
+    
+                attribute=response.lower().split("event attribute:")[1].split("start date:")[0].strip()
+                time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
+                event_list=get_extend(attribute,time_slot)
+                #write to event list
+                await websocket.send(pack_non_schedule(json.dumps(event_list)))
+                await websocket.send(pack_schedule(json.dumps(event_list),'period'))
+                #write_event(event_list)
+                #update the review time of todo
+                item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
+                last_event_time = datetime.strptime(event_list[-1]['end_time'], "%Y-%m-%d %H:%M")
+                item['review_time'] = last_event_time.strftime("%Y-%m-%d") # when the last planned event is complete, review 
+                item['stat']='processed'
+                #add binned eventid
+                item['binned_event']= [event['event_id'] for event in event_list]
+                
+                
+            # if delete_todo:
+            #     for item in delete_todo:
+            #         delete_event(item['binned_event'])
+            #         item['stat']='deleted'
+            #         item['binned_event']=[]
+    
+            # update todo list
+            # for item in delete_todo:
+            #         for i, stored_item in enumerate(stored_todo):
+            #             if stored_item['id'] == item['id']:
+            #                 stored_todo[i] = item
+            #                 break
+                
+            # add new todos
+            # stored_todo.extend(new_todo)
+            await websocket.send(pack_non_schedule(json.dumps(new_todo)))
+            await websocket.send(pack_schedule(json.dumps(new_todo),'period'))
 
         #could update the datebase here 
     # period
