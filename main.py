@@ -82,7 +82,7 @@ async def chat_plan(websocket):
             # 测试
             await websocket.send(pack_non_schedule(response))
             add_msg.append(("assistant",response))
-            if "turns: 1" in response and "Status: completed" in  response:
+            if "turns:1" in response and "Status: completed" in  response:
                 #check the conflict
                 new_data=json.loads(response.lower().split("collected events:")[1].strip())
                 feteched_data =get_add_event(new_data)
@@ -478,6 +478,7 @@ If after first response the fields are still missing , you may ground "since you
 output rules:
 1.YOU MUST STRICTLY FOLLOW THE OUTPUT FORMAT
 2.DO NOT ADD WORDS BEFORE OR AFTER THE 4 OUPUTPARTS
+3.Do not add space after the ":", for example ( turns: 1 -- not correct) ( turns:1 correct)
 
 Valid format example:
 turns:1
