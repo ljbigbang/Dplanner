@@ -197,6 +197,16 @@ def extract_message(response, field):
             return None
     return None
 
+def get_new_todo(list_a):
+    output=[]
+    for i in list_a:
+        tmp={}
+        tmp['id']=gen_id()
+        tmp['content']=i
+        tmp['stat']='unprocessed'
+        output.append(tmp)
+    return output
+
 #func that return response to user
 # def response():
 
