@@ -79,6 +79,8 @@ async def chat_plan(websocket):
             add_msg=add_extractor_prompt()
             add_msg.append(("user",user_input))
             response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
+            # 测试
+            await websocket.send(pack_non_schedule(response))
             add_msg.append(("assistant",response))
             if "turns: 1" in response and "Status: completed" in  response:
                 #check the conflict
