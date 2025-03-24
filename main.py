@@ -44,7 +44,8 @@ def pack_schedule(schedule: str,type: str)->str:
     pack_json = {
         'data': schedule,
         'state': 'schedule',
-        'type': type
+        'type': type,
+        'datatype': ''
     }
     return json.dumps(pack_json)
 
