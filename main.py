@@ -344,7 +344,7 @@ async def chat_plan(websocket):
             # add new todos
             # stored_todo.extend(new_todo)
             #await websocket.send(pack_non_schedule(json.dumps(new_todo)))
-            await websocket.send(pack_schedule(json.dumps(new_todo),'period','todolist'))
+            await websocket.send(pack_period_schedule(json.dumps(new_todo),'period','todolist'))
 
         #could update the datebase here 
     # period
