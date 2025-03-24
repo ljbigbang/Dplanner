@@ -48,6 +48,15 @@ def pack_schedule(schedule: str,type: str)->str:
     }
     return json.dumps(pack_json)
 
+def pack_period_schedule(schedule: str,type: str,datatype: str)->str:
+    pack_json = {
+        'data': schedule,
+        'state': 'schedule',
+        'type': type,
+        'datatype': datatype
+    }
+    return json.dumps(pack_json)
+
 async def chat_plan(websocket):
     global time 
     global feteched_data
@@ -68,8 +77,6 @@ async def chat_plan(websocket):
         router_msg.append(("user",user_input))
         response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
         action = response.lower().split("user needs:")[1].strip()
-        # test
-        await websocket.send(pack_non_schedule(action))
     
 
         #add
@@ -133,7 +140,7 @@ async def chat_plan(websocket):
                 #send final schedule back to frontend
                 await websocket.send(pack_non_schedule(json.dumps(new_data)))
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule)
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
                 floor_messages.append(addplan_msg[1:])
@@ -198,7 +205,7 @@ async def chat_plan(websocket):
                     final_schedule = new_data
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule)
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
                 floor_messages.append(addplan_msg[1:])
@@ -256,27 +263,26 @@ async def chat_plan(websocket):
                 final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule)
                 try:
                     cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
                     delete_event(cancel_events)
                 except ValueError:
                     pass
                 
-
-        #add all messages to floor at last
-        #the first one is the system prompt, do not add to floor
-        floor_messages.append(add_msg[1:])
-        floor_messages.append(addplan_msg[1:])
-        # return "new event has been added"
+            #add all messages to floor at last
+            #the first one is the system prompt, do not add to floor
+            floor_messages.append(add_msg[1:])
+            floor_messages.append(addplan_msg[1:])
+            # return "new event has been added"
 
 
     
         # period
         if action=='period':
         #front end should return a dict{new:,delete:}    
-            
             new_todo=get_new_todo([user_input])
+            #await websocket.send(pack_non_schedule(json.dumps(new_todo)))
             # get existed event of recent month
             cur_date= time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
             feteched_data =get_recent_events(time,30)
@@ -303,11 +309,14 @@ async def chat_plan(websocket):
                         confirm_stat=True
     
                 attribute=response.lower().split("event attribute:")[1].split("start date:")[0].strip()
+                #await websocket.send(pack_non_schedule(attribute))
+                #await websocket.send(pack_non_schedule(response))
                 time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
+                #await websocket.send(pack_non_schedule(time_slot))
                 event_list=get_extend(attribute,time_slot)
                 #write to event list
-                await websocket.send(pack_non_schedule(json.dumps(event_list)))
-                await websocket.send(pack_schedule(json.dumps(event_list),'period'))
+                #await websocket.send(pack_non_schedule(json.dumps(event_list)))
+                await websocket.send(pack_period_schedule(json.dumps(event_list),'period','calendar'))
                 #write_event(event_list)
                 #update the review time of todo
                 item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
@@ -333,8 +342,8 @@ async def chat_plan(websocket):
                 
             # add new todos
             # stored_todo.extend(new_todo)
-            await websocket.send(pack_non_schedule(json.dumps(new_todo)))
-            await websocket.send(pack_schedule(json.dumps(new_todo),'period'))
+            #await websocket.send(pack_non_schedule(json.dumps(new_todo)))
+            await websocket.send(pack_schedule(json.dumps(new_todo),'period','todolist'))
 
         #could update the datebase here 
     # period
@@ -626,13 +635,20 @@ If no slots fit, propose alternatives (e.g., shorten duration, adjust days) with
 
 **In the output:
 you need to show the final proposed schedule after the dynamic adjustments, strickly follow this format:
-event attribute:priority:1-5,category:description:
+FOLLOW THIS FORMAT! THE TITLE OF EACH LINE SHOULD EXACTLY SAME AS THE FORMAT GIVEN
+TIME SLOT IS PRESENTED IN 24hour format (2025-04-02,13:00-21:00)
+FOLLOW THE SAME SEQUENCE of the title of each line
+
+event attribute:priority:1-5,category:,description:
 start date:date
-recurring time slot:period description(e.g. everyday), timeslot (e.g. 15:00pm-16:00pm)
-adjusted time slot details for each recurred event : a list [date, time slot]
+recurring time slot:period description(e.g. everyday), timeslot (e.g. 15:00-16:00)
+adjusted time slot details for each recurred event: a list [date, time slot]
+current date: {cur_date}
 
 
-current date : {cur_date}
+example:
+adjusted time slot details for each recurred event:(this is valid)
+adjusted time slot details:(this is not valid)
 
 '''}]
 
