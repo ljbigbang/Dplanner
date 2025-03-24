@@ -266,7 +266,6 @@ async def chat_plan(websocket):
         #the first one is the system prompt, do not add to floor
         floor_messages.append(add_msg[1:])
         floor_messages.append(addplan_msg[1:])
-        continue
         # return "new event has been added"
 
 
