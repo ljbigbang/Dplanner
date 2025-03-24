@@ -270,17 +270,7 @@ async def chat_plan(websocket):
         # return "new event has been added"
 
 
-
-#delete
-
-
-
-#check
-
-
-
-#modify
-
+    
     # period
     if action=='period':
     #front end should return a dict{new:,delete:}    
