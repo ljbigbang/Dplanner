@@ -40,10 +40,11 @@ def pack_non_schedule(non_schedule: str)->str:
     }
     return json.dumps(pack_json)
 
-def pack_schedule(schedule: str)->str:
+def pack_schedule(schedule: str,type: str)->str:
     pack_json = {
         'data': schedule,
         'state': 'schedule'
+        'type': type
     }
     return json.dumps(pack_json)
 
@@ -68,10 +69,7 @@ async def chat_plan(websocket):
         response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
         action = response.lower().split("user needs:")[1].strip()
 
-        # 需要修改
-        #temporary add period
-        if user_input=="period":
-           action="period"
+    
 
         #add
         if action=='add':
@@ -133,7 +131,7 @@ async def chat_plan(websocket):
                     final_schedule = new_data
                 #send final schedule back to frontend
                 await websocket.send(pack_non_schedule(json.dumps(new_data)))
-                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
                 write_event(final_schedule)
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
@@ -198,7 +196,7 @@ async def chat_plan(websocket):
                 except:
                     final_schedule = new_data
                 #send final schedule back to frontend
-                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
                 write_event(final_schedule)
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
@@ -256,7 +254,7 @@ async def chat_plan(websocket):
 
                 final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
                 #send final schedule back to frontend
-                await websocket.send(pack_schedule(json.dumps(final_schedule)))
+                await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
                 write_event(final_schedule)
                 try:
                     cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
@@ -286,11 +284,12 @@ async def chat_plan(websocket):
     # period
     if action=='period':
     #front end should return a dict{new:,delete:}    
-
-        new_todo=get_new_todo()
+        
+        new_todo=get_new_todo([user_input])
         # get existed event of recent month
         cur_date= time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
         feteched_data =get_recent_events(time,30)
+        global return_feedback
         return_feedback=None # intitial has no feedback
         for item in new_todo:
             format_input=f'''
@@ -298,17 +297,17 @@ async def chat_plan(websocket):
             "user demand":{item['content']}
             '''
             todo_planner=todo_planner_prompt(cur_date)
-
+            todo_planner.append(('user',format_input))
             confirm_stat=False
             while not confirm_stat:
-                response = type_agent("todo_planner",todo_planner,llm2)
+                response = llm_invoke(client, "deepseek-reasoner", todo_planner, user_input, "todo_planner")
                 todo_planner.append(("assistant",response))
                 plan_details=response.lower().split("current date:")[0]+"do you agree with this plan?"
-                to_frontend(plan_details)
-                user_input=from_frontend()
+                await websocket.send(pack_non_schedule(plan_details))
+                user_input = await websocket.recv()
                 todo_planner.append(("user",user_input))
                 confirm_msg=confirm_agent_prompt()
-                get_confirm = type_agent("confirm_agent",confirm_msg,llm)
+                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, user_input, "confirm_agent")
                 if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                     confirm_stat=True
 
@@ -316,7 +315,9 @@ async def chat_plan(websocket):
             time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
             event_list=get_extend(attribute,time_slot)
             #write to event list
-            write_event(event_list)
+            await websocket.send(pack_non_schedule(json.dumps(event_list)))
+            await websocket.send(pack_schedule(json.dumps(event_list),'period'))
+            #write_event(event_list)
             #update the review time of todo
             item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
             last_event_time = datetime.strptime(event_list[-1]['end_time'], "%Y-%m-%d %H:%M")
@@ -326,21 +327,23 @@ async def chat_plan(websocket):
             item['binned_event']= [event['event_id'] for event in event_list]
             
             
-        if delete_todo:
-            for item in delete_todo:
-                delete_event(item['binned_event'])
-                item['stat']='deleted'
-                item['binned_event']=[]
+        # if delete_todo:
+        #     for item in delete_todo:
+        #         delete_event(item['binned_event'])
+        #         item['stat']='deleted'
+        #         item['binned_event']=[]
 
         # update todo list
-        for item in delete_todo:
-                for i, stored_item in enumerate(stored_todo):
-                    if stored_item['id'] == item['id']:
-                        stored_todo[i] = item
-                        break
+        # for item in delete_todo:
+        #         for i, stored_item in enumerate(stored_todo):
+        #             if stored_item['id'] == item['id']:
+        #                 stored_todo[i] = item
+        #                 break
             
         # add new todos
-        stored_todo.extend(new_todo)
+        # stored_todo.extend(new_todo)
+        await websocket.send(pack_non_schedule(json.dumps(new_todo)))
+        await websocket.send(pack_schedule(json.dumps(new_todo),'period'))
 
         #could update the datebase here 
     # period
@@ -422,9 +425,18 @@ My task is to identify if you want to:
 2. Check existing schedule
 3. Modify an event
 4. delete an event
- 
+5. Add a periodic event
+
+The period phrase could be like this (could be more than this):
+"Every week" 
+"Every 10 days" 
+"Twice a month" 
+"every Mon/Wed/Fri"
+
+
+
 Output:
-I will respond with "User needs: (add/check/modify/delete)" followed by relevant questions.
+I will respond with "User needs: (add/check/modify/delete/period)" followed by relevant questions.
 no other words are allowed
 
 Examples:
@@ -442,43 +454,47 @@ def add_extractor_prompt():
     return [{"role":"system","content":f"""
 Role: I am an event information collector. I will:
 
-1. Extract event details from user message in this format:
+1. Extract event details from user message in this event format:
 when implicite time give(e.g. tommorow), you may use current time{time} to infer.
 Do not hallucinate if the information is not given in users response.
-Auto-infer category (Work/Personal/Health).
+If information is not provided in user message, the corresponding item should not existed.
+Auto-infer and fill category item only (Work/Personal/Health).
 You should auto gen an eventid over 20 digits that impossible to repeat
 {{
     "event_id": "random_alphanumeric", 
-    "start_time": "YYYY-MM-DD HH:MM", (required)
+    "start_time": "YYYY-MM-DD HH:MM", 
     "end_time": "YYYY-MM-DD HH:MM",   
     "category": "Work/Personal/Health",
     "description": "user input",
     "priority": "1-5"
 }}
 
-2. 
-grounded message: "your grounded message"
-when fields are missing from user statement (fields include start_time,end_time,category,description, priority):
-- First Response: respond with "Would you provide more information about [list missing fields]?"
-- Second Response: "Since you haven't given all info, I shall try it based on your preference"
-
-When all fields provided: "Ok, I shall help you arrange it"
-
-If any field is missing, you may ground "would you provide more information about (missing fileds) ?" Do not infer.
-If  all field is provided, you may ground "ok i shall help you arrange it ". Do not infer.
-If after first response the fields are still missing , you may ground "since you haven't give all info, i shall try it based on your preference " .In this case, the status should be partially completed.
+2.Missing field identify:
+Compare your extracted information json to the event format (fields include start_time,end_time,category,description, priority), identify which fields are missing
 
 
-3. Output format:
+3. Grounding process:
+If identify missing information,you need to aks user to provided it by: "Would you provide more information about [list missing fields]?"
+
+After user reply,use user reply to update the extracted information, then decide :
+(1)if every filed is complete, reply :"Ok, I shall help you arrange it"
+(2)if every filed is not complete, reply "Since you haven't given all info, I shall try it based on your preference"
+
+Rule:
+1.Only update the extracted information with the information user provided(except category could be infer by you ), do not infer and add to the field.
+
+
+4. Output format:
 1.turns:1-2(this is showing the number of turns that you are anwsering)
-2.Status: completed/partially completed
-3.grounded message: "your grounded message"
-4.Collected events: list of newly scheduled events [{{}},{{}}]
+2.Reasoning:(the reason process how you get the final collected events)
+3.Status: completed/partially completed
+4.grounded message: "your grounded message"
+5.Collected events: list of newly scheduled events [{{}},{{}}]
 
 output rules:
 1.YOU MUST STRICTLY FOLLOW THE OUTPUT FORMAT
 2.DO NOT ADD WORDS BEFORE OR AFTER THE 4 OUPUTPARTS
-3.Do not add space after the ":", for example ( turns: 1 -- not correct) ( turns:1 correct)
+3.Do not add space after ":", (turns:1 is valid)(turns: 1 is invalid)
 
 Valid format example:
 turns:1
@@ -489,7 +505,7 @@ Collected events:[{{"event_id":"123456789012345678901","start_time":"2024-02-26 
 invalid format example:
 Collected events:[{{"event_id":"123456789012345678901","start_time":"2024-02-26 14:00","end_time":"2024-02-26 15:00","description":"meeting","priority":"5"}}] tell me if you need more help
 
-4.Rules:
+5.Rules:
 1.At most you can response two times, first time the turns=1, second time the turns=2
 2.After first response, no matter user provide more information or not, you should not repeat ask for more information.
 
@@ -604,8 +620,10 @@ Exercise: 9:00 AM – 10:00 AM and 16:00PM - 20:00PM.
 Meetings: 9:00 AM – 5:00 PM.
 Auto-Assign Attributes
 Duration: Assign based on event type (e.g., workout = 60 mins, meeting = 30 mins).
+Split a very long duration if is not explicitly a continuous event, the split ones could flexibly select days and time slot trying to balance.
 Priority: Default to medium unless stated (e.g., “urgent” = high).
 The time slot could be different for each occurence if needed.
+
 
 User preference(you must follow this preference):
 Avoid Early Morning Sports: No intense activities (gym, swim) before 9:00 AM.
