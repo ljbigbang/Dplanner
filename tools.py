@@ -1,6 +1,8 @@
 #write event list to mongodb
 from pymongo import MongoClient
 from datetime import datetime, timedelta 
+import random
+import string
 
 #check Conflict 
 def check_time_conflicts(list_a, list_b):
@@ -197,6 +199,36 @@ def extract_message(response, field):
             return None
     return None
 
+def get_recent_events(curdate,days):
+#return the events in a list days after curdate
+    db=EventDatabase()
+# Convert curdate to datetime if it's string
+    if isinstance(curdate, str):
+        curdate = datetime.strptime(curdate, "%Y-%m-%d %H:%M")
+        # Calculate end date
+        end_date = curdate + timedelta(days=days)
+        # Get events between current date and end date
+        events = [doc for doc in db.get_events_by_time_range(
+            curdate.strftime("%Y-%m-%d %H:%M"),
+            end_date.strftime("%Y-%m-%d %H:%M")
+        )]
+        return events
+
+def gen_id():
+    #randomly gen 6 lettes
+    #randomly gen 8 digits
+    #randomly mix the letters and digits
+    # Generate 6 random letters
+    letters = ''.join(random.choices(string.ascii_letters, k=6))
+    # Generate 8 random digits
+    digits = ''.join(random.choices(string.digits, k=8))
+    # Combine letters and digits
+    combined = list(letters + digits)
+    # Shuffle the combined string
+    random.shuffle(combined)
+    # Join back into string
+    return ''.join(combined)
+
 def get_new_todo(list_a):
     output=[]
     for i in list_a:
@@ -206,6 +238,35 @@ def get_new_todo(list_a):
         tmp['stat']='unprocessed'
         output.append(tmp)
     return output
+
+def get_extend(attribute,time_slot):
+    # Parse attributes
+    attr_dict = {}
+    for attr in attribute.split(','):
+        print(attr)
+        key, value = attr.split(':')
+        attr_dict[key.strip()] = value.strip()
+
+    # Convert time_slot from string to list
+    if isinstance(time_slot, str):
+        time_slot = eval(time_slot)
+    
+    events = []
+
+    for slot in time_slot:
+        date, time_range = slot
+        start_time, end_time = time_range.split('-')
+        event = {
+            "event_id": gen_id(),
+            "start_time": f"{date} {start_time}",
+            "end_time": f"{date} {end_time}",
+            "category": attr_dict.get('category', 'Personal'),
+            "description": attr_dict.get('description', ''),
+            "priority": attr_dict.get('priority', '3')
+        }
+        events.append(event)
+
+    return events
 
 #func that return response to user
 # def response():
@@ -228,12 +289,3 @@ def get_new_todo(list_a):
 # 'status':''
 
 # }
-
-
-#func that return the recent month event since current date    
-# def get_recent_month():
-
-#this function will use period event info and extend to multiple json format
-# def extend():
-
-
