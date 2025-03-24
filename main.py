@@ -132,6 +132,7 @@ async def chat_plan(websocket):
                 except:
                     final_schedule = new_data
                 #send final schedule back to frontend
+                await websocket.send(pack_non_schedule(json.dumps(new_data)))
                 await websocket.send(pack_schedule(json.dumps(final_schedule)))
                 write_event(final_schedule)
                 #need to delete the event in the new event listed first
