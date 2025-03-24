@@ -68,7 +68,8 @@ async def chat_plan(websocket):
         router_msg.append(("user",user_input))
         response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
         action = response.lower().split("user needs:")[1].strip()
-
+        # test
+        await websocket.send(pack_non_schedule(action))
     
 
         #add
