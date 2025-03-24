@@ -647,7 +647,8 @@ async def main():
         handler,
         host="0.0.0.0",
         port=port,
-        ping_interval=20
+        ping_interval=20,
+        close_timeout=3600
     ):
         print(f"服务已启动，监听端口 {port}")
         await asyncio.Future()
