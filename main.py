@@ -87,12 +87,12 @@ async def chat_plan(websocket):
             add_msg.append(("user",user_input))
             response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
             # 测试
-            await websocket.send(pack_non_schedule(response))
+            # await websocket.send(pack_non_schedule(response))
             add_msg.append(("assistant",response))
             if "turns:1" in response and "Status:completed" in response:
                 #check the conflict
                 new_data=json.loads(response.lower().split("collected events:")[1].strip())
-                feteched_data =get_add_event(new_data)
+                feteched_data = get_add_event(new_data)
                 check_conflict = check_time_conflicts(feteched_data,new_data)
                 if len(check_conflict)>0:
                     conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
@@ -107,7 +107,7 @@ async def chat_plan(websocket):
                     #if cancel, end the dialogue
                     if "delete" in conflict_action:
                         floor_messages.append(add_msg[1:])
-                        await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
+                        await websocket.send(pack_non_schedule("The arrangement has been cancelled!"))
                         continue
                         # return "user delete the new events"
                     else:
@@ -139,9 +139,10 @@ async def chat_plan(websocket):
                 except:
                     final_schedule = new_data
                 #send final schedule back to frontend
-                await websocket.send(pack_non_schedule(json.dumps(new_data)))
+                #await websocket.send(pack_non_schedule(json.dumps(new_data)))
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                #write_event(final_schedule)
+                write_event(final_schedule)
+                await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
                 floor_messages.append(addplan_msg[1:])
@@ -155,10 +156,9 @@ async def chat_plan(websocket):
                 add_msg.append(("assistant",response))
                 # still partially completed?
 
-            if "turns:2" in response and "status:completed" in  response: #similar to round 1
+            if "turns:2" in response and "Status:completed" in  response: #similar to round 1
                 new_data=json.loads(response.lower().split("collected events:")[1].strip())
                 feteched_data =get_add_event(new_data)
-                # planned_event =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
                 check_conflict = check_time_conflicts(feteched_data,new_data)
                 if len (check_conflict)>0:
                     conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
@@ -173,7 +173,7 @@ async def chat_plan(websocket):
                     #if cancel, end the dialogue
                     if "delete" in conflict_action:
                         floor_messages.append(add_msg[1:])
-                        await websocket.send(pack_non_schedule("the arrangement has been cancelled!"))
+                        await websocket.send(pack_non_schedule("The arrangement has been cancelled!"))
                         continue
                         # return "user delete the new events"
                     else:
@@ -206,7 +206,8 @@ async def chat_plan(websocket):
                     final_schedule = new_data
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                #write_event(final_schedule)
+                write_event(final_schedule)
+                await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 #need to delete the event in the new event listed first
                 floor_messages.append(add_msg[1:])
                 floor_messages.append(addplan_msg[1:])
@@ -215,7 +216,6 @@ async def chat_plan(websocket):
             else: 
                 #information is not enough , call add planner
                 #planner need new data, and fetched data 
-                #new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
                 new_data = json.loads(response.lower().split("collected events:")[1].strip())
                 feteched_data = get_add_event(new_data)
                 user_input = None# now user does not have feedback yet
@@ -227,7 +227,7 @@ async def chat_plan(websocket):
                     response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
                     addplan_msg.append(("assistant",response))
                     try:
-                        conflict_res= response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
+                        conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
                         addplan_msg.append(("assistant",f'[conflict checker]: {conflict_res}'))
                         await websocket.send(pack_non_schedule(conflict_res))
                         user_input = await websocket.recv()
@@ -241,7 +241,7 @@ async def chat_plan(websocket):
                         if(len(conflict_res))==0:
                             # never have conflict
                             solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                            await websocket.send(pack_non_schedule("OK!\n"+solved_plan+"\n Would you confirm?"))
                             user_input = await websocket.recv()
                             addplan_msg.append(("user",user_input))
                             confirm_msg= confirm_agent_prompt()
@@ -264,7 +264,8 @@ async def chat_plan(websocket):
                 final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                #write_event(final_schedule)
+                write_event(final_schedule)
+                await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 try:
                     cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
                     delete_event(cancel_events)
@@ -279,46 +280,48 @@ async def chat_plan(websocket):
 
 
     
-        # period
+        #period
         if action=='period':
         #front end should return a dict{new:,delete:}    
-            new_todo=get_new_todo([user_input])
+            new_todo = get_new_todo([user_input])
             #await websocket.send(pack_non_schedule(json.dumps(new_todo)))
-            # get existed event of recent month
-            cur_date= time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
-            feteched_data =get_recent_events(time,30)
+            #get existed event of recent month
+            cur_date = time+"  "+ datetime.strptime(time, "%Y-%m-%d %H:%M").strftime("%A")
+            feteched_data = get_recent_events(time,30)
             global return_feedback
-            return_feedback=None # intitial has no feedback
+            return_feedback = None # intitial has no feedback
             for item in new_todo:
                 format_input=f'''
                 "existed":{feteched_data},
                 "user demand":{item['content']}
+                "preference":"I don't want to do some sports at weekends."
                 '''
                 todo_planner=todo_planner_prompt(cur_date)
                 todo_planner.append(('user',format_input))
                 confirm_stat=False
                 while not confirm_stat:
                     response = llm_invoke(client, "deepseek-reasoner", todo_planner, "todo_planner")
+                    #await websocket.send(pack_non_schedule(response))
                     todo_planner.append(("assistant",response))
                     plan_details=response.lower().split("current date:")[0]+"do you agree with this plan?"
                     await websocket.send(pack_non_schedule(plan_details))
                     user_input = await websocket.recv()
                     todo_planner.append(("user",user_input))
                     confirm_msg=confirm_agent_prompt()
+                    confirm_msg.append(("user",user_input))
                     get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                     if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                         confirm_stat=True
-    
+                
                 attribute=response.lower().split("event attribute:")[1].split("start date:")[0].strip()
                 #await websocket.send(pack_non_schedule(attribute))
-                #await websocket.send(pack_non_schedule(response))
                 time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
                 #await websocket.send(pack_non_schedule(time_slot))
                 event_list=get_extend(attribute,time_slot)
-                #write to event list
                 #await websocket.send(pack_non_schedule(json.dumps(event_list)))
+                #write to event list
                 await websocket.send(pack_period_schedule(json.dumps(event_list),'period','calendar'))
-                #write_event(event_list)
+                write_event(event_list)
                 #update the review time of todo
                 item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
                 last_event_time = datetime.strptime(event_list[-1]['end_time'], "%Y-%m-%d %H:%M")
@@ -343,8 +346,8 @@ async def chat_plan(websocket):
                 
             # add new todos
             # stored_todo.extend(new_todo)
-            #await websocket.send(pack_non_schedule(json.dumps(new_todo)))
             await websocket.send(pack_period_schedule(json.dumps(new_todo),'period','todolist'))
+            await websocket.send(pack_non_schedule("The arrangement has been finished!"))
 
         #could update the datebase here 
     # period
