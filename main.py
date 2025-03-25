@@ -69,7 +69,7 @@ async def chat_plan(websocket):
     #floor messages does not have agent syspromt
     floor_messages = []
     #get user's input
-    await websocket.send(pack_non_schedule("您好，我是您的私人时间规划助手Dplanner，您有什么需要安排的嘛？"))
+    await websocket.send(pack_non_schedule("Hello, I am your personal time planning assistant DPlanner. Do you have anything to arrange?"))
     while(True):
         user_input = await websocket.recv()
     
