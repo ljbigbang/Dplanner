@@ -43,6 +43,17 @@ def json_extract(response_content):
     else:
         raise ValueError(f"Response has problem in format!")
 
+def qwen_llm(hist_messages, model_type, prompt):
+    messages = [{'role': 'system', 'content': prompt}]
+    messages.extend(hist_messages)
+    
+    completion = client.chat.completions.create(
+        model=model_type,
+        messages=messages
+    )
+    return completion.choices[0].message.content
+
+
 def pack_non_schedule(non_schedule: str)->str:
     pack_json = {
         'data': non_schedule,
@@ -73,36 +84,57 @@ async def chat_plan(websocket):
     global feteched_data
     global user_input
     global new_data
+    global preference_msg
+    global start_time
+    global extracted_hist
     #get the current time
     time = datetime.now().strftime("%Y-%m-%d %H:%M")
     #start dialougue
     #floor messages does not have agent syspromt
     floor_messages = []
+    rf_db=prefereceDatabase()
+    preference msg= list(rf_db.get by id (user_id))
     #get user's input
     await websocket.send(pack_non_schedule("Hello, I am your personal time planning assistant DPlanner. Do you have anything to arrange?"))
     while(True):
         user_input = await websocket.recv()
-    
+        #return from front end
+        user_id='exampleid123'
         #router
-        router_msg=chater_prompt()
-        router_msg.append(("user",user_input))
-        response=llm_invoke(client, "deepseek-chat", router_msg, "chater")
+        router_msg=[{'role':'user','content':user_input}]
+        response = qwen_llm(router_msg,"qwen2.5-7b-instruct",chater_prompt()[0])
         action = response.lower().split("user needs:")[1].strip()
     
 
         #add
         if action=='add':
             #call extractor
-            add_msg=add_extractor_prompt()
-            add_msg.append(("user",user_input))
-            response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
-            # 测试
-            # await websocket.send(pack_non_schedule(response))
-            add_msg.append(("assistant",response))
-            if "turns:1" in response and "Status:completed" in response:
+            add_msg=[{'role':'user','content':user_input}]
+            start_time= qwen_llm(add_msg,"qwen2.5-14b-instruct",time_infer_prompt()).split("Output:")[1].strip()
+            await websocket.send(pack_non_schedule('start time '+start_time))
+            extracted_hist=''
+            extracted_hist=  qwen_llm(add_msg,"qwen2.5-32b-instruct",extracted_prompt())
+            if "json" in extracted_hist:
+                json_str= extracted_hist.split('json:')[1].strip()
+            else :
+                json_str=   extracted_hist
+            json_data = json.loads(json_str)
+            #missing_fields = extracted_hist.split('missing fields:')[1].strip().split('<list_end>')[0].strip()
+            missing_fields = json_data["missing fields"]
+            add_msg.append({'role':'assistant','content':extracted_hist})
+            await websocket.send(pack_non_schedule('first extract'+extracted_hist))
+            if len(missing_fields)<1:
                 #check the conflict
-                new_data=json.loads(response.lower().split("collected events:")[1].strip())
-                feteched_data = get_add_event(new_data)
+                final_extracted=qwen_llm([{"role":"user","content":user_input}],"qwen2.5-32b-instruct",autofill_prompt())
+                if "json" in final_extracted:
+
+                    json_str = final_extracted.split('json:')[1].strip()
+                else :
+                    json_str=final_extracted
+                new_data = json.loads(json_str)
+                new_data = new_data['collected events']
+                feteched_data =get_add_event(new_data)
+            # new_data =json.loads(response.split("```json")[1].strip().split("```")[0].strip())
                 check_conflict = check_time_conflicts(feteched_data,new_data)
                 if len(check_conflict)>0:
                     conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
@@ -112,8 +144,8 @@ async def chat_plan(websocket):
                     #wait user's input
                     #use the preference to solve the conflict
                     user_input = await websocket.recv()
-                    router_msg.append(("user",user_input))
-                    conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
+                    add_msg.append({"role":"user","content":user_input})
+                    conflict_action = qwen_llm([add_msg[-1]],"qwen2.5-7b-instruct",chater_prompt()[0])
                     #if cancel, end the dialogue
                     if "delete" in conflict_action:
                         floor_messages.append(add_msg[1:])
@@ -126,63 +158,88 @@ async def chat_plan(websocket):
                         addplan_msg.append(("user",user_input))
                         confirm_stat = False # has to be confirmed by user
                         while not confirm_stat:
-                            response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                            addplan_msg.append(("assistant",response))
+                            addplan_msg=[{'role':'user','content':user_input}]
+                            response = qwen_llm(addplan_msg,"qwen2.5-32b-instruct",add_planner_prompt()[0])
+                            if "json" in response:
+
+                                json_str = response.split('json:').strip()
+                            else :
+                                json_str=response
+                            json_data = json.loads(json_str)
+                            addplan_msg.append({"role":"assistant","content":response})
                             try:
-                                conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
+                                conflict_res = json_data['Conflict explanation']
                                 await websocket.send(pack_non_schedule(conflict_res))
                                 user_input = await websocket.recv()
-                                addplan_msg.append(("user",user_input))
+                                addplan_msg.append({"role":"user","content":user_input})
+                                get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                                if get_confirm == "agree":
+                                    confirm_stat=True
                             except:
-                                solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
-                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                                solved_plan=json_data["Suggested Schedule"]
+                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+str(solved_plan)+"\n Would you confirm?"))
                                 user_input = await websocket.recv()
-                                addplan_msg.append(("user",user_input))
-                                confirm_msg = confirm_agent_prompt()
-                                confirm_msg.append(("user",user_input))
-                                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                                addplan_msg.append({"role":"user","content":user_input})
+                                get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
                                 if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                                     confirm_stat=True
                                 # disagree?
                 try:
-                    final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+                    final_schedule=json_data["Suggested Schedule"]
                 except:
                     final_schedule = new_data
                 #send final schedule back to frontend
                 #await websocket.send(pack_non_schedule(json.dumps(new_data)))
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule,user_id)
                 await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 #need to delete the event in the new event listed first
-                floor_messages.append(add_msg[1:])
-                floor_messages.append(addplan_msg[1:])
+                floor_messages.append(add_msg)
+                floor_messages.append(addplan_msg)
                 continue
                 # return "new event has been added"
             else:
-                await websocket.send(pack_non_schedule(extract_message(response.lower(),"grounded message:"))) # ask for more infor 
+                await websocket.send(pack_non_schedule("I am sorry, I could not find all the required information. Please provide the missing fields: "+str(missing_fields))) # ask for more infor 
                 user_input = await websocket.recv()
-                add_msg.append(("user",user_input))
-                response = llm_invoke(client, "deepseek-chat", add_msg, "add_extractor")
-                add_msg.append(("assistant",response))
+                add_msg.append({"role":"user","content":user_input} )
+                extracted_hist =  qwen_llm([{"role":"user","content":user_input}],"qwen2.5-32b-instruct",extracted_prompt())
+                await websocket.send(pack_non_schedule('ground extract'+extracted_hist))
+                if "json" in extracted_hist:
+                    json_str= extracted_hist.split('json:')[1].strip()
+                else :
+                    json_str=extracted_hist
+                json_data = json.loads(json_str)
+                missing_fields = json_data["missing fields"]
+                add_msg.append({"role":'assistant',"content":extracted_hist})
+                #missing_fields = extracted_hist.split('missing fields:')[1].strip().split('<list_end>')[0].strip()
+                extracted_hist =  json_data["extracted information"]
                 # still partially completed?
 
-            if "turns:2" in response and "Status:completed" in  response: #similar to round 1
-                new_data=json.loads(response.lower().split("collected events:")[1].strip())
+            if len(missing_fields)<1:
+                final_extracted=qwen_llm([{"role":"user","content":"correct output format according to sysprompt"}],"qwen2.5-32b-instruct",autofill_prompt())
+                if "json" in final_extracted:
+                    json_str = final_extracted.split('json:')[1].strip()
+                else:
+                    json_str=final_extracted
+                new_data = json.loads(json_str)
+                new_data = new_data['collected events']
                 feteched_data =get_add_event(new_data)
                 check_conflict = check_time_conflicts(feteched_data,new_data)
                 if len (check_conflict)>0:
                     conflict_output="found conflicts, how can I help you solve it? \n "+str(check_conflict)
-                    add_msg.append(("assistant",f'[conflict checker]: {conflict_output}'))
+                    add_msg.append({"role":"assistant","content":f'[conflict checker]: {conflict_output}'})
                     #report conflict
                     await websocket.send(pack_non_schedule(conflict_output))
                     #wait user's input
                     #use the preference to solve the conflict
                     user_input = await websocket.recv()
-                    router_msg.append(("user",user_input))
-                    conflict_action = llm_invoke(client, "deepseek-chat", router_msg, "chater")
+                    add_msg.append({"role":"user","content":user_input})
+                #router_msg.append(("user",user_input)) # this will check what user want to do with the conflict
+                #conflict_action = type_agent("chater",router_msg,llm)
+                    conflict_action = qwen_llm([add_msg[-1]],"qwen2.5-7b-instruct",chater_prompt()[0])
                     #if cancel, end the dialogue
                     if "delete" in conflict_action:
-                        floor_messages.append(add_msg[1:])
+                        floor_messages.append(add_msg)
                         await websocket.send(pack_non_schedule("The arrangement has been cancelled!"))
                         continue
                         # return "user delete the new events"
@@ -192,41 +249,63 @@ async def chat_plan(websocket):
                         addplan_msg.append(("user",user_input))
                         confirm_stat = False # has to be confirmed by user
                         while not confirm_stat:
-                            response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                            addplan_msg.append(("assistant",response))
+                            addplan_msg=[{'role':'user','content':'do as the systempromt say'}]
+                            response = qwen_llm(addplan_msg,"qwen2.5-32b-instruct",add_planner_prompt()[0])
+                            if "json" in response:
+                            
+                                json_str = response.split('json:')[1].strip()
+                            else :
+                                json_str=response
+                            json_data = json.loads(json_str)
+                            addplan_msg.append({"role":"assistant","content":response})
                             try:
-                                conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
-                                await websocket.send(pack_non_schedule(conflict_res))
+                                conflict_res=json_data["Conflict explanation"]   
+                                await websocket.send(pack_non_schedule(conflict_res)) 
                                 user_input = await websocket.recv()
-                                addplan_msg.append(("user",user_input))
+                                addplan_msg.append({"role":"user","content":user_input})
+                                get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                                if get_confirm=="agree":
+                                    confirm_stat=True
                             except:
-                                solved_plan= response.lower().split("Suggested Schedule")[1].split("----separate line----")[0].strip()
-                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
+                                solved_plan=json_data["Suggested Schedule"]
+                                await websocket.send(pack_non_schedule("OK! conflict solved \n"+str(solved_plan)+"\n Would you confirm?"))
                                 user_input = await websocket.recv()
-                                addplan_msg.append(("user",user_input))
-                                confirm_msg = confirm_agent_prompt()
-                                confirm_msg.append(("user",user_input))
-                                get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                                if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                                addplan_msg.append({"role":"user","content":user_input})
+
+                            #confirm_msg=confirm_agent_prompt()
+                            #get_confirm = type_agent("confirm_agent",confirm_msg,llm)
+                                get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                                if get_confirm=="agree":
                                     confirm_stat=True
                                 # disagree?
                 try:
-                    final_schedule = json.loads(response.lower().split("suggested Schedule:")[1].split("----separate line----")[0].strip())
+                    final_schedule=json_data["Suggested Schedule"]
                 except:
                     final_schedule = new_data
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule,user_id)
                 await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 #need to delete the event in the new event listed first
-                floor_messages.append(add_msg[1:])
-                floor_messages.append(addplan_msg[1:])
+                floor_messages.append(add_msg)
+                floor_messages.append(addplan_msg)
                 continue
                 # return "new event has been added"
             else: 
                 #information is not enough , call add planner
                 #planner need new data, and fetched data 
-                new_data = json.loads(response.lower().split("collected events:")[1].strip())
+                
+                final_extracted=qwen_llm([{"role":'user',"content":user_input}],"qwen2.5-32b-instruct",autofill_prompt())
+                await websocket.send(pack_non_schedule('2 no full extract'+final_extracted))
+                
+                if "json" in final_extracted:
+                    json_str = final_extracted.split('json:')[1].strip()
+                else :
+                    json_str = final_extracted
+     
+                new_data = json.loads(json_str) 
+                await websocket.send(pack_non_schedule('2 no full format'+str(  new_data) )) 
+                new_data = new_data['collected events']
                 feteched_data = get_add_event(new_data)
                 user_input = None# now user does not have feedback yet
                 addplan_msg = add_planner_prompt()
@@ -234,47 +313,52 @@ async def chat_plan(websocket):
         
                 confirm_stat = False # has to be confirmed by user 
                 while not confirm_stat:
-                    response = llm_invoke(client, "deepseek-chat", addplan_msg, "add_planner")
-                    addplan_msg.append(("assistant",response))
-                    try:
-                        conflict_res = response.lower().split("conflict explanation:")[1].split("----separate line----")[0].strip()
-                        addplan_msg.append(("assistant",f'[conflict checker]: {conflict_res}'))
-                        await websocket.send(pack_non_schedule(conflict_res))
-                        user_input = await websocket.recv()
-                        addplan_msg.append(("user",user_input))
-                        confirm_msg= confirm_agent_prompt()
-                        confirm_msg.append(("user",user_input))
-                        get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                        if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                            confirm_stat=True
-                    except:    
-                        if(len(conflict_res))==0:
-                            # never have conflict
-                            solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule("OK!\n"+solved_plan+"\n Would you confirm?"))
+                    addplan_msg=[{'role':'user','content':'do as the systempromt say'}]
+                    response = qwen_llm(addplan_msg,"qwen2.5-32b-instruct",add_planner_prompt()[0])
+                    await websocket.send(pack_non_schedule('2 no plan'+str(  response) )) 
+                    if "json" in response:
+                        json_str = response.split('json:')[1].strip()
+                    else :
+                        json_str = response
+                    json_data = json.loads(json_str)
+                    addplan_msg.append({"role":"assistant","content":response})
+                    if "conflict explanation:" in response.lower():
+                        conflict_res=json_data["Conflict explanation"]
+                        if len(conflict_res)>3:
+                            addplan_msg.append({"role":"assistant","content":f'[conflict checker]: {conflict_res}'})
+                            await websocket.send(pack_non_schedule(conflict_res))
                             user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                            confirm_msg= confirm_agent_prompt()
-                            confirm_msg.append(("user",user_input))
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
+                            addplan_msg.append({"role":"user","content":user_input})
+
+                            get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                            if get_confirm=="agree":
                                 confirm_stat=True
                         else:
-                            #conflict has been solved
-                            solved_plan= response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip()
-                            await websocket.send(pack_non_schedule("OK! conflict solved \n"+solved_plan+"\n Would you confirm?"))
-                            user_input = await websocket.recv()
-                            addplan_msg.append(("user",user_input))
-                            confirm_msg=confirm_agent_prompt()
-                            confirm_msg.append(("user",user_input))
-                            get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
-                            if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
-                                confirm_stat=True
+                            pass
+                            # never have conflict
+                        solved_plan=json_data["Suggested Schedule"]
+                        await websocket.send(pack_non_schedule("OK!\n"+str(solved_plan)+"\n Would you confirm?"))
+                        user_input = await websocket.recv()
+                        addplan_msg.append({"role":"user","content":user_input})
+                    
+                        get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                        if get_confirm =="agree":
+                            confirm_stat=True
+                    else:
+                        #conflict has been solved
+                        solved_plan= json_data["Suggested Schedule"]
+                        await websocket.send(pack_non_schedule("OK! conflict solved \n"+str(solved_plan)+"\n Would you confirm?"))
+                        user_input = await websocket.recv()
+                        addplan_msg.append({"role":"user","content":user_input})
+                    
+                        get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
+                        if get_confirm =="agree":
+                            confirm_stat=True
 
-                final_schedule=json.loads(response.lower().split("suggested schedule:")[1].split("----separate line----")[0].strip())
+                final_schedule= json_data["Suggested Schedule"]
                 #send final schedule back to frontend
                 await websocket.send(pack_schedule(json.dumps(final_schedule),'normal'))
-                write_event(final_schedule)
+                #write_event(final_schedule,user_id)
                 await websocket.send(pack_non_schedule("The arrangement has been finished!"))
                 try:
                     cancel_events = json.loads(response.lower().split("cancel list:")[1].split("----separate line----")[0].strip())
@@ -284,8 +368,8 @@ async def chat_plan(websocket):
                 
             #add all messages to floor at last
             #the first one is the system prompt, do not add to floor
-            floor_messages.append(add_msg[1:])
-            floor_messages.append(addplan_msg[1:])
+            floor_messages.append(add_msg)
+            floor_messages.append(addplan_msg)
             # return "new event has been added"
 
 
@@ -430,7 +514,7 @@ async def chat_plan(websocket):
 
 
 def confirm_agent_prompt():
-    return [{"role":"system","content":f"""
+    return [f"""
 role:
 you are a sensitive agent that good at judging the user's agreement to the plan.
 
@@ -440,10 +524,10 @@ if the user disagree, return "disagree"
 if the user is using a statement, not showing any intention, return "none"
 
 this is user input:{user_input}
-"""}]
+"""]
 
 def chater_prompt():
-    return [{"role":"system","content":f'''
+    return [f'''
 
 Role: I am a scheduling assistant focused on understanding your calendar needs.
 
@@ -452,18 +536,9 @@ My task is to identify if you want to:
 2. Check existing schedule
 3. Modify an event
 4. delete an event
-5. Add a periodic event
-
-The period phrase could be like this (could be more than this):
-"Every week" 
-"Every 10 days" 
-"Twice a month" 
-"every Mon/Wed/Fri"
-
-
-
+ 
 Output:
-I will respond with "User needs: (add/check/modify/delete/period)" followed by relevant questions.
+I will respond with "User needs: (add/check/modify/delete)" followed by relevant questions.
 no other words are allowed
 
 Examples:
@@ -475,10 +550,10 @@ Response: "User needs: check"
 
 User: "Can you change the time of my dentist appointment?"
 Response: "User needs: modify"
-'''}]
+''']
 
 def add_extractor_prompt():
-    return [{"role":"system","content":f"""
+    return [f"""
 Role: I am an event information collector. I will:
 
 1. Extract event details from user message in this event format:
@@ -536,10 +611,10 @@ Collected events:[{{"event_id":"123456789012345678901","start_time":"2024-02-26 
 1.At most you can response two times, first time the turns=1, second time the turns=2
 2.After first response, no matter user provide more information or not, you should not repeat ask for more information.
 
-"""}]
+"""]
 
 def add_planner_prompt():
-    return [{"role":"system","content":f"""Role: I am a Schedule Planning Specialist that optimizes event scheduling.
+    return [f"""Role: I am a Schedule Planning Specialist that optimizes event scheduling.
     I need to follow the rules and the output format strictly. 
     I need to consider user preference.
 
@@ -565,7 +640,14 @@ YOU MUST FOLLOW THIS EXACT FORMAT WITHOUT ANY DEVIATION:
 IMPORTANT FORMATTING RULES:
 1. Do not include any markdown formatting (no ```, no indentation)
 2. The JSON must be valid and properly formatted
-Suggested Schedule:
+3. if the key of the JSON does not have value ,leave it empty (e.g.  {{"Conflict explanation":""  }})
+
+(DO NOT USER ANY MARKDOWN FORMAT SYMBOLS )
+json:
+{{
+
+
+"Suggested Schedule":
 [
     {{
         "event_id": "value",
@@ -574,22 +656,25 @@ Suggested Schedule:
         "category": "value",
         "description": "value",
         "priority": "value"
-    }}
-]
-----separate line----
-Conflict explanation: (only include if conflicts exist)
-Only explain why you give the suggestion when you found conflict, and only explain about the conflict using event names or descriptions,
-do not use event id ,do not include others.
-----separate line----
-Cancel list: (only include if user want to cancel events)
-same format as  Suggested Schedule
-----separate line----
-Would this schedule work for you?
+    }},
+    {{}}
+],
+
+"Conflict explanation":(only include if conflicts exist)
+(Only explain why you give the suggestion when you found conflict, and only explain about the conflict using event names or descriptions,
+do not use event id ,do not include others.)
+,
+"Cancel list":(only include if user want to cancel events)
+
+}}
+```
 
 Your input is listed here:
 existed_events:{feteched_data}, 
 new_requirement:{new_data},
-user preference:{user_input}
+ user preference:{user_input}
+
+
 
 rules:
 1.if no conflict found, do not explain conflict in the output.
@@ -598,7 +683,8 @@ rules:
 4.in the Suggested Schedule, only show new add event or the existed event that is adjusted by you.
 5.if the user cancel the existed events,show the cancel events in canel list
 
-"""}]
+"""]
+
 
 def todo_planner_prompt(cur_date):
     return [{"role":"system","content":f'''
@@ -690,6 +776,114 @@ If no slots fit, propose alternatives (e.g., shorten duration, adjust days) with
 ]
 ```
 '''}]
+
+def time_infer_prompt():
+    
+    return f"""
+
+you should get the start_time from user input.
+if the start_time is given in a related form ,you need to infer based on current time.
+Do this step by step:
+1.decide how many days after current time the event will start
+2.attain the date by computing with current time and the days after current time
+3.make sure you do not omit a single day
+
+(example: user:i will swim next Friday , if current time is 2025-2-25 Tuesday, next Friday should be 2025-2-28 )
+
+-Note: the current time is  {time}, infer based on this time 
+- the format for start_time  is YYYY-MM-DD HH:MM
+- you should be aware that Feburary has 28 days in 2025.
+
+output format(strickly follow the format):
+
+reason:
+your inferering process
+
+Output:
+YYYY-MM-DD HH:MM  (if day and time given)
+YYYY-MM-DD  (if day is given and time is not given)
+none  (if day and time not given)
+
+"""
+
+
+def extracted_prompt():
+    return f"""
+you are a event information collector. you will follow the steps below:
+
+the event fields include :  start_time,end_time,time span,priority,category,description
+1.extract  information of the event from user input
+- note the start_time is this {start_time}.
+- end_time might implicitly give (e.g.   3-4 pm, 3 is start and 4 is end time )
+- you could infer this event description if user do not provide description.
+
+2.identify which required fields are missing ,show them in a list
+- the required fields :start_time, end_time,priority, category
+
+this is the information that you already know:{extracted_hist} . this is also considered as extracted information
+
+
+output format(strickly follow the format below)
+(DO NOT USER ANY MARKDOWN FORMAT SYMBOLS )
+(if the key of the JSON does not have value ,leave it empty (e.g.  {{"Conflict explanation":""  }}))
+json:
+{{
+"reasoning": reason process (1.extract ,2.decide what is missing ),
+"extracted information": only show the provided  information and description,
+"missing fields":[list of missing fields]
+ (- if implicityly end time given, then it is not missing) 
+ (- time span is not missing)
+
+}}
+
+
+"""
+
+
+
+def autofill_prompt():
+    return f"""
+
+
+you are a event information collector. you will follow the steps below:
+
+1.infer and fill the missing fields given extracted information , user provided information and missing information
+-inference guides:
+-you may infer priority (1-5, 1 is most important), category(Work/Personal/Health) and description by your self
+- you may infer the end_time given start_time and possible period of this event
+- if the start_time and end_time does not have hour, you need to infer it 
+2.combine all the information and output the result
+
+the extracted information is this:{extracted_hist}
+
+the event infor includes this :
+{{
+    "start_time": "YYYY-MM-DD HH:MM", 
+    "end_time": "YYYY-MM-DD HH:MM",   
+    "category": "Work/Personal/Health",
+    "description": "user input",
+    "priority": "1-5"
+}}
+
+
+output format(strickly follow the format below)
+
+output:
+(DO NOT USER ANY MARKDOWN FORMAT SYMBOLS )
+(if the key of the JSON does not have value ,leave it empty (e.g.  {{"Conflict explanation":""  }}))
+json:
+{{
+"resoning":your reasoning process,
+"collected events":(list of newly scheduled events) 
+[{{}},{{}}](e.g  [{{"start_time":"2024-02-26 14:00","end_time":"2024-02-26 15:00","description":"meeting","priority":"5"}}]   )
+
+
+
+}}
+
+```
+
+"""
 
 async def delete(websocket):
     # delete relevant events in database
