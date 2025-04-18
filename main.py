@@ -1,9 +1,10 @@
 #this is the code for this schedule system
+import re
 import os
 import json
 import asyncio
 import websockets
-from datetime import datetime, timedelta 
+from datetime import datetime
 from tools import *
 from pymongo import MongoClient
 from openai import OpenAI
@@ -32,6 +33,15 @@ def llm_invoke(client, llm_name, prompt, agenttype):
         stream = False
     )
     return f"[{agenttype}]: {response.choices[0].message.content}"
+
+def json_extract(response_content):
+    pattern = r"```json(.*?)```"
+    matches = re.findall(pattern, response_content, re.DOTALL)
+    if matches:
+        json_str = "\n".join(matches)
+        return json.loads(json_str)
+    else:
+        raise ValueError(f"Response has problem in format!")
 
 def pack_non_schedule(non_schedule: str)->str:
     pack_json = {
@@ -301,9 +311,17 @@ async def chat_plan(websocket):
                 confirm_stat=False
                 while not confirm_stat:
                     response = llm_invoke(client, "deepseek-reasoner", todo_planner, "todo_planner")
-                    #await websocket.send(pack_non_schedule(response))
-                    todo_planner.append(("assistant",response))
-                    plan_details=response.lower().split("current date:")[0]+"do you agree with this plan?"
+                    # print response
+                    # await websocket.send(pack_non_schedule(response))
+                    # get response in python json format
+                    response = json_extract(response.lower().split('[todo_planner]:')[1].strip())
+                    # get response in json string format
+                    response_str = json.dumps(response)
+                    # print response in json string format
+                    # await websocket.send(pack_non_schedule(response_str))
+                    todo_planner.append(("assistant",response_str))
+                    plan_details="event:"+response[0]['description']+"\ncategory:"+response[0]['category']+"\npriority:"+response[0]['priority']+"\nstart date:"+response[0]['start_date']+"\nperiod:"+response[0]['period_description']+"\ntime:"+response[0]['timeslot']+"\nDo you agree with this plan?"
+                    # print plan details
                     await websocket.send(pack_non_schedule(plan_details))
                     user_input = await websocket.recv()
                     todo_planner.append(("user",user_input))
@@ -312,24 +330,29 @@ async def chat_plan(websocket):
                     get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
                     if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                         confirm_stat=True
-                
-                attribute=response.lower().split("event attribute:")[1].split("start date:")[0].strip()
-                #await websocket.send(pack_non_schedule(attribute))
-                time_slot=response.lower().split("adjusted time slot details for each recurred event:")[1].split("current date:")[0].strip()
-                #await websocket.send(pack_non_schedule(time_slot))
-                event_list=get_extend(attribute,time_slot)
-                #await websocket.send(pack_non_schedule(json.dumps(event_list)))
-                #write to event list
+                time_slot=response[1]['adjusted_timeslot_details']
+                event_list = []
+                for slot in time_slot:
+                    event = {
+                        'event_id': gen_id(),
+                        'start_time': slot['date'] + " " + slot['timeslot'].split('-')[0],
+                        'end_time': slot['date'] + " " + slot['timeslot'].split('-')[1],
+                        'category': response[0]['category'],
+                        'description': response[0]['description'],
+                        'priority': response[0]['priority'],
+                    }
+                    event_list.append(event)
+                # await websocket.send(pack_non_schedule(json.dumps(event_list)))
+                # write event list to database
                 await websocket.send(pack_period_schedule(json.dumps(event_list),'period','calendar'))
                 write_event(event_list)
                 #update the review time of todo
-                item['origin_plan']=response.lower().split("recurring time slot:")[1].split("adjusted time slot details for each recurred event:")[0].strip()
-                last_event_time = datetime.strptime(event_list[-1]['end_time'], "%Y-%m-%d %H:%M")
-                item['review_time'] = last_event_time.strftime("%Y-%m-%d") # when the last planned event is complete, review 
+                item['origin_plan']=response[0]['period_description'] +','+ response[0]['timeslot']
+                print(type(event_list[-1]['end_time']))
+                item['review_time'] = event_list[-1]['end_time'].strftime("%Y-%m-%d") # when the last planned event is complete, review 
                 item['stat']='processed'
                 #add binned eventid
                 item['binned_event']= [event['event_id'] for event in event_list]
-                
                 
             # if delete_todo:
             #     for item in delete_todo:
@@ -577,83 +600,95 @@ rules:
 
 """}]
 
-
 def todo_planner_prompt(cur_date):
     return [{"role":"system","content":f'''
-Role: 
-You are an AI schedule agent expert in intelligently inserting recurring events into a user's 
-calendar through holistic time optimization and human-centric reasoning.
+# Role: 
+You are an AI schedule agent expert in intelligently inserting recurring events into a user's calendar through holistic time optimization and human-centric reasoning.
 
-Objective:
-Find the earliest possible start date and optimal recurring  time slot for the user’s requested event that:
-Avoids conflicts with existing events.
-Follows natural activity sequences (e.g., n o sports after sports, buffer before critical meetings).
-Respects time preferences (e.g., no early-morning sports).
-Aligns with event duration norms (e.g., workouts = 45–90 mins).
-Schecule for the next 30 days since the start date
+# Current Date:
+{cur_date}
 
-Rules:
-Start Date Calculation
+# Objective:
+Find the earliest possible start date and optimal recurring time slot for the user's requested event and schecule for the next 30 days since the start date:
+- Avoids conflicts with existing events.
+- Follows natural activity sequences (e.g., no sports after sports, buffer before critical meetings).
+- Respects time preferences (e.g., no early-morning sports).
+- Aligns with event duration norms (e.g., workouts = 45–90 mins).
+
+# Rules:
+- Start Date Calculation:
 If the user specifies a timeframe (e.g., “starting next week”), calculate the first valid day:
 example( if current date is Saturday, then next week should be next monday)
 If unspecified, start on the earliest conflict-free day.
 
-Period Handling:
+- Period Handling:
 User Phrase → Period Definition:
 "Every week" → Schedule 1 event within each 7-day window (days can vary).
 "Every 10 days" → Schedule 1 event every 10-day interval (days can vary).
 "Twice a month" → Schedule 2 events, each in separate 15-day windows.
 Custom patterns (e.g., "every Mon/Wed/Fri") still apply if explicitly stated.
-Flexible Day Selection：
-For each period, dynamically select any day
-If multiple days are valid, prioritize the most suitable day based on user preferences,prefer the same weekday if possible.
-Try to balance the numers of events in each period, for example (do not put everything on monday if other days are so free).
 
+- Flexible Day Selection:
+For each period, dynamically select any day.
+If multiple days are valid, prioritize the most suitable day based on user preferences, prefer the same weekday if possible.
+Try to balance the numbers of events in each period, for example (do not put everything on monday if other days are so free).
 
-Time Slot Selection(Apply to Every Occurrence)
-Prioritization Logic:
+- Time Slot Selection(Apply to Every Occurrence):
+-- Prioritization Logic:
 Assign desire time slot to high priority events.
 First check the most preferred time slot for an event, it does not need to follow the existed event closly.
 Consider enough time break between two consecutive quite different events, because extra time is needed to change location or prepare for the next event.
-Sequence Logic:
+-- Sequence Logic:
 Buffer 60+ mins before high-priority meetings.
 Separate similar activities (e.g., gym → meeting → yoga, not gym → yoga).
-Natural Timing:
+-- Natural Timing:
 Creative work: 8:00–11:00 AM.
 Exercise: 9:00 AM – 10:00 AM and 16:00PM - 20:00PM.
 Meetings: 9:00 AM – 5:00 PM.
-Auto-Assign Attributes
-Duration: Assign based on event type (e.g., workout = 60 mins, meeting = 30 mins).
-Split a very long duration if is not explicitly a continuous event, the split ones could flexibly select days and time slot trying to balance.
-Priority: Default to medium unless stated (e.g., “urgent” = high).
-The time slot could be different for each occurence if needed.
 
+- Auto-Assign Attributes and for priority, default to medium unless stated (e.g., “urgent” = high).
+- Duration: 
+-- Assign based on event type (e.g., workout = 60 mins, meeting = 30 mins).
+-- Split a very long duration if is not explicitly a continuous event, the split ones could flexibly select days and time slot trying to balance.
 
-User preference(you must follow this preference):
+- The time slot could be different for each occurence if needed.
+
+# User preference(you must follow this preference):
 Avoid Early Morning Sports: No intense activities (gym, swim) before 9:00 AM.
 Do not plan two sports event in the same day.
+
+# User Feedback:
 {return_feedback}
 
-Conflict Resolution
+# Conflict Resolution
 If no slots fit, propose alternatives (e.g., shorten duration, adjust days) with explanations.
 
 **In the output:
-you need to show the final proposed schedule after the dynamic adjustments, strickly follow this format:
-FOLLOW THIS FORMAT! THE TITLE OF EACH LINE SHOULD EXACTLY SAME AS THE FORMAT GIVEN
-TIME SLOT IS PRESENTED IN 24hour format (2025-04-02,13:00-21:00)
-FOLLOW THE SAME SEQUENCE of the title of each line
-
-event attribute:priority:1-5,category:,description:
-start date:date
-recurring time slot:period description(e.g. everyday), timeslot (e.g. 15:00-16:00)
-adjusted time slot details for each recurred event: a list [date, time slot]
-current date: {cur_date}
-
-
-example:
-adjusted time slot details for each recurred event:(this is valid)
-adjusted time slot details:(this is not valid)
-
+- You need to show the final proposed schedule after the dynamic adjustments.
+- Date should be presented in YYYY-MM-DD format. (e.g. 2025-04-02).
+- Time slot should be presented in 24hour format (e.g. 15:00-16:00).
+- Please strictly follow this format:
+```json
+[
+    {{
+        "priority": "the priority of the event (1-5)",
+        "category": "the category of the event",
+        "description": "the description of the event",
+        "start_date": "the start date of the event (YYYY-MM-DD)",
+        "period_description": "the period description of the event (e.g. everyday)",
+        "timeslot": "the time slot of the event (e.g. 15:00-16:00)"
+    }},
+    {{
+        "adjusted_timeslot_details": [
+        {{
+            "date": "the date of the event (YYYY-MM-DD)",
+            "timeslot": "the time slot of the event (e.g. 15:00-16:00)"
+        }},
+        ...
+        ]
+    }}
+]
+```
 '''}]
 
 async def delete(websocket):
