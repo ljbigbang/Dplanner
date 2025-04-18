@@ -18,9 +18,9 @@ from openai import OpenAI
 # 4.stop and wait 5 minutes 
 # 5. save dialouge to memory, clear memory and hault the program
 
-DEEPSEEK_API_KEY = 'sk-c3b547b62c224059ba0cebfafc7a4f0a'
-DEEPSEEK_URL = "https://api.deepseek.com"
-client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url=DEEPSEEK_URL)
+QWEN_API_KEY = 'sk-d0d414ae60c04b569db14cd502eeb8bc'
+QWEN_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+client = OpenAI(api_key=QWEN_API_KEY,base_url=QWEN_URL)
 
 #get the response of llm and add a name to it
 def llm_invoke(client, llm_name, prompt, agenttype):
@@ -394,7 +394,7 @@ async def chat_plan(websocket):
                 todo_planner.append(('user',format_input))
                 confirm_stat=False
                 while not confirm_stat:
-                    response = llm_invoke(client, "deepseek-reasoner", todo_planner, "todo_planner")
+                    response = llm_invoke(client, "qwq-plus", todo_planner, "todo_planner")
                     # print response
                     # await websocket.send(pack_non_schedule(response))
                     # get response in python json format
@@ -411,7 +411,7 @@ async def chat_plan(websocket):
                     todo_planner.append(("user",user_input))
                     confirm_msg=confirm_agent_prompt()
                     confirm_msg.append(("user",user_input))
-                    get_confirm = llm_invoke(client, "deepseek-chat", confirm_msg, "confirm_agent")
+                    get_confirm = llm_invoke(client, "qwen-max", confirm_msg, "confirm_agent")
                     if get_confirm.lower().split('[confirm_agent]:')[1].strip()=="agree":
                         confirm_stat=True
                 time_slot=response[1]['adjusted_timeslot_details']
