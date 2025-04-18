@@ -5,6 +5,7 @@ import json
 import asyncio
 import websockets
 from datetime import datetime
+import tools
 from tools import *
 from pymongo import MongoClient
 from openai import OpenAI
@@ -92,8 +93,8 @@ async def chat_plan(websocket):
     #start dialougue
     #floor messages does not have agent syspromt
     floor_messages = []
-    rf_db=prefereceDatabase()
-    preference msg= list(rf_db.get by id (user_id))
+    rf_db = tools.prefereceDatabase()
+    preference_msg= list(rf_db.get_by_id(user_id))
     #get user's input
     await websocket.send(pack_non_schedule("Hello, I am your personal time planning assistant DPlanner. Do you have anything to arrange?"))
     while(True):
