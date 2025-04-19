@@ -103,8 +103,8 @@ async def chat_plan(websocket):
         #return from front end
         #router
         router_msg=[{'role':'user','content':user_input}]
-        response = qwen_llm(router_msg,"qwen2.5-7b-instruct",chater_prompt()[0])
-        action = response.lower().split("user needs:")[1].strip()
+        response = qwen_llm(router_msg,"qwen2.5-14b-instruct",chater_prompt()[0])
+        action = json.loads(response.lower())["user needs"]
     
 
         #add
@@ -537,20 +537,35 @@ My task is to identify if you want to:
 2. Check existing schedule
 3. Modify an event
 4. delete an event
- 
-Output:
-I will respond with "User needs: (add/check/modify/delete)" followed by relevant questions.
-no other words are allowed
+5. add a periodic event
+
+
+
+The period phrase could be like this (could be more than this):
+"Every week" 
+"Every 10 days" 
+"Twice a month" 
+"every Mon/Wed/Fri"
+
+
+Output(strictly follow this json formatm do not use any markdown symbols):
+
+{{
+"user needs": (add/check/modify/delete/period)
+
+
+}}
 
 Examples:
 User: "I need to schedule a meeting tomorrow"
-Response: "User needs: add"
-
-User: "What's on my calendar for next week?"
-Response: "User needs: check"
+Response: {{"User needs": "add"}}
 
 User: "Can you change the time of my dentist appointment?"
-Response: "User needs: modify"
+Response: {{"User needs: "modify"}}
+
+User: "i need to run three times a week"
+Response: {{"User needs: "period"}}
+
 ''']
 
 def add_extractor_prompt():
