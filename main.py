@@ -94,13 +94,13 @@ async def chat_plan(websocket):
     #floor messages does not have agent syspromt
     floor_messages = []
     rf_db = tools.prefereceDatabase()
+    user_id = await websocket.recv()
     preference_msg= list(rf_db.get_by_id(user_id))
     #get user's input
     await websocket.send(pack_non_schedule("Hello, I am your personal time planning assistant DPlanner. Do you have anything to arrange?"))
     while(True):
         user_input = await websocket.recv()
         #return from front end
-        user_id='exampleid123'
         #router
         router_msg=[{'role':'user','content':user_input}]
         response = qwen_llm(router_msg,"qwen2.5-7b-instruct",chater_prompt()[0])
