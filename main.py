@@ -155,8 +155,6 @@ async def chat_plan(websocket):
                         # return "user delete the new events"
                     else:
                         #send it to add planner
-                        addplan_msg = add_planner_prompt()
-                        addplan_msg.append(("user",user_input))
                         confirm_stat = False # has to be confirmed by user
                         while not confirm_stat:
                             addplan_msg=[{'role':'user','content':user_input}]
@@ -170,7 +168,10 @@ async def chat_plan(websocket):
                             addplan_msg.append({"role":"assistant","content":response})
                             try:
                                 conflict_res = json_data['Conflict explanation']
-                                await websocket.send(pack_non_schedule(conflict_res))
+                                if len(conflict_res)>0:
+                                    await websocket.send(pack_non_schedule(conflict_res))
+                                else :
+                                    await websocket.send(pack_non_schedule("ok, this arrangement is valid! will you confirm?"))
                                 user_input = await websocket.recv()
                                 addplan_msg.append({"role":"user","content":user_input})
                                 get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
@@ -246,8 +247,6 @@ async def chat_plan(websocket):
                         # return "user delete the new events"
                     else:
                         #send it to add planner
-                        addplan_msg = add_planner_prompt()
-                        addplan_msg.append(("user",user_input))
                         confirm_stat = False # has to be confirmed by user
                         while not confirm_stat:
                             addplan_msg=[{'role':'user','content':'do as the systempromt say'}]
@@ -261,7 +260,10 @@ async def chat_plan(websocket):
                             addplan_msg.append({"role":"assistant","content":response})
                             try:
                                 conflict_res=json_data["Conflict explanation"]   
-                                await websocket.send(pack_non_schedule(conflict_res)) 
+                                if len(conflict_res)>0:
+                                    await websocket.send(pack_non_schedule(conflict_res))
+                                else :
+                                    await websocket.send(pack_non_schedule("ok, this arrangement is valid! will you confirm?"))
                                 user_input = await websocket.recv()
                                 addplan_msg.append({"role":"user","content":user_input})
                                 get_confirm = qwen_llm([],"qwen2.5-7b-instruct",confirm_agent_prompt()[0])
@@ -650,6 +652,10 @@ Process:
    - Follow scheduling best practices
    - Consider event categories and priorities
 
+User preference(you must follow this preference):
+Avoid Early Morning Sports: No intense activities (gym, swim) before 9:00 AM.
+Do not plan two sports event in the same day.
+{preference_msg}
 
 Output Format:
 YOU MUST FOLLOW THIS EXACT FORMAT WITHOUT ANY DEVIATION:
