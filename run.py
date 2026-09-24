@@ -5,7 +5,7 @@ import asyncio
 import websockets
 from openai import OpenAI
 
-DEEPSEEK_API_KEY = 'sk-c3b547b62c224059ba0cebfafc7a4f0a'
+DEEPSEEK_API_KEY = ''
 DEEPSEEK_URL = "https://api.deepseek.com"
 async def chat(websocket):
     try:
