@@ -19,7 +19,7 @@ from openai import OpenAI
 # 4.stop and wait 5 minutes 
 # 5. save dialouge to memory, clear memory and hault the program
 
-QWEN_API_KEY = 'sk-d0d414ae60c04b569db14cd502eeb8bc'
+QWEN_API_KEY = ''
 QWEN_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 client = OpenAI(api_key=QWEN_API_KEY,base_url=QWEN_URL)
 
